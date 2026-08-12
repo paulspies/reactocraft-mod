@@ -1,0 +1,30 @@
+{
+  "effect.reactocraft.rad_resistance": "Rad Resistance",
+  "effect.reactocraft.rad_resistance.description": "Absorbs part of every radiation dose. Stacks with an anti-radiation suit and with shielded walls.",
+  "effect.reactocraft.rad_weakness": "Rad Weakness",
+  "effect.reactocraft.rad_weakness.description": "Strips all radiation protection and doubles the dose you take.",
+  "effect.reactocraft.radiation": "Radiation",
+  "effect.reactocraft.radiation.description": "Exposure builds while it lasts. Dizziness first, then damage, then blindness.",
+  "effect.reactocraft.weak_radiation": "Weak Radiation",
+  "effect.reactocraft.weak_radiation.description": "A mild dose. Enough to make you sick and dizzy, not enough to kill you.",
+
+  "item.minecraft.potion.effect.rad_resistance": "Potion of Rad Resistance",
+  "item.minecraft.splash_potion.effect.rad_resistance": "Splash Potion of Rad Resistance",
+  "item.minecraft.lingering_potion.effect.rad_resistance": "Lingering Potion of Rad Resistance",
+  "item.minecraft.tipped_arrow.effect.rad_resistance": "Arrow of Rad Resistance",
+
+  "item.minecraft.potion.effect.rad_weakness": "Potion of Rad Weakness",
+  "item.minecraft.splash_potion.effect.rad_weakness": "Splash Potion of Rad Weakness",
+  "item.minecraft.lingering_potion.effect.rad_weakness": "Lingering Potion of Rad Weakness",
+  "item.minecraft.tipped_arrow.effect.rad_weakness": "Arrow of Rad Weakness",
+
+  "item.minecraft.potion.effect.radiation": "Potion of Radiation",
+  "item.minecraft.splash_potion.effect.radiation": "Splash Potion of Radiation",
+  "item.minecraft.lingering_potion.effect.radiation": "Lingering Potion of Radiation",
+  "item.minecraft.tipped_arrow.effect.radiation": "Arrow of Radiation",
+
+  "item.minecraft.potion.effect.weak_radiation": "Potion of Weak Radiation",
+  "item.minecraft.splash_potion.effect.weak_radiation": "Splash Potion of Weak Radiation",
+  "item.minecraft.lingering_potion.effect.weak_radiation": "Lingering Potion of Weak Radiation",
+  "item.minecraft.tipped_arrow.effect.weak_radiation": "Arrow of Weak Radiation"
+}
