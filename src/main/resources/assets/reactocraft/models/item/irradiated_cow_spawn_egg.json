@@ -1,0 +1,4 @@
+{
+  "_comment": "⚠️ EVERY spawn egg needs its own model file, even though they all share one template and carry no texture of their own. Without this the egg renders as the black and pink missing-texture block. The two tint colours come from the DeferredSpawnEggItem registration, not from here.",
+  "parent": "minecraft:item/template_spawn_egg"
+}
