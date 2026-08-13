@@ -310,14 +310,16 @@ public final class RadEngine {
         }
 
         if (!RadConfig.MILK_CLEARS_EXPOSURE.get()) return;
-        if (!event.getItem().is(Items.MILK_BUCKET)) return;
+        if (!isMilk(event.getItem())) return;
 
         CompoundTag data = player.getPersistentData();
         int exposure = data.getInt(EXPOSURE_KEY);
 
         if (exposure <= RadConfig.MILK_FULL_CURE_LIMIT.get()) {
             data.putInt(EXPOSURE_KEY, 0);
-            // Vanilla milk already strips the effects themselves, including Contamination.
+            // A vanilla milk BUCKET strips every effect by itself, but Farmer's Delight's bottle may
+            // not, so Contamination is removed explicitly rather than assumed gone.
+            player.removeEffect(ModEffects.CONTAMINATION);
             return;
         }
 
@@ -370,6 +372,12 @@ public final class RadEngine {
         for (ServerPlayer hit : level.getEntitiesOfClass(ServerPlayer.class, box)) {
             cure(hit);
         }
+    }
+
+    /** Milk in any container the config lists. Vanilla bucket plus Farmer's Delight's bottle. */
+    private static boolean isMilk(ItemStack stack) {
+        String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        return RadConfig.MILK_ITEMS.get().contains(id);
     }
 
     private static void cure(ServerPlayer player) {

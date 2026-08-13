@@ -57,6 +57,7 @@ public final class RadConfig {
     public static final ModConfigSpec.DoubleValue DAMAGE_PER_DOSE;
     public static final ModConfigSpec.IntValue NATURAL_RECOVERY;
     public static final ModConfigSpec.BooleanValue MILK_CLEARS_EXPOSURE;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> MILK_ITEMS;
     public static final ModConfigSpec.DoubleValue SELF_ADVANCE_RATE;
     public static final ModConfigSpec.IntValue SYMPTOM_RAMP_CAP;
     public static final ModConfigSpec.IntValue MILK_FULL_CURE_LIMIT;
@@ -195,6 +196,15 @@ public final class RadConfig {
                 .push("cure");
         MILK_CLEARS_EXPOSURE = b.comment("Milk wipes the accumulated clock, not just the symptoms")
                 .define("milk_clears_exposure", true);
+        MILK_ITEMS = b.comment(
+                        "Everything that counts as milk. Farmer's Delight's bottle is here because Paul asked",
+                        "for it: it is the same idea in a smaller container, so it should cure the same way.",
+                        "⚠️ Only a real milk BUCKET strips mob effects by itself, that is vanilla. For anything",
+                        "else here we clear the exposure clock AND the Contamination effect ourselves, or the",
+                        "symptoms would linger with no clock behind them.")
+                .defineList("milk_items",
+                        List.of("minecraft:milk_bucket", "farmersdelight:milk_bottle"),
+                        o -> o instanceof String);
         MILK_FULL_CURE_LIMIT = b.comment(
                         "Below this many seconds of exposure, milk cures you completely. Paul's number is 180:",
                         "milk works right up to poison, and once poison starts there is no going back on milk",
