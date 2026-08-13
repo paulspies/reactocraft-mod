@@ -154,21 +154,44 @@ public final class RadEngine {
     private static double inventoryRate(ServerPlayer player) {
         if (!RadConfig.INVENTORY_RADIATION.get()) return 0.0D;
 
-        double worst = 0.0D;
-        for (ItemStack stack : player.getInventory().items) {
+        double total = 0.0D;
+
+        // Main inventory and the offhand. Worn armour is deliberately excluded: the anti-radiation
+        // suit is armour, and having a suit dose you for wearing it would be absurd.
+        total += scan(player.getInventory().items);
+        total += scan(player.getInventory().offhand);
+
+        double cap = RadConfig.INVENTORY_MAX_RATE.get();
+        return cap > 0.0D ? Math.min(cap, total) : total;
+    }
+
+    /**
+     * 🚨 SCALED BY STACK SIZE AND SUMMED, which is HBM's rule and is the whole point.
+     *
+     * The first version took the single worst item and ignored the rest, so one uranium powder and
+     * eight stacks of it dosed you identically. That made hoarding free, which is the opposite of
+     * what carrying nuclear material should feel like.
+     *
+     * ⚠️ It is capped, because unbounded it is brutal: at 0.1 a full stack of 64 powder is a rate of
+     * 6.4, which reaches the first symptom in about nine seconds. The cap keeps a hoard genuinely
+     * dangerous without being instantly fatal, and it is the number to tune if this feels wrong.
+     */
+    private static double scan(Iterable<ItemStack> slots) {
+        double total = 0.0D;
+        for (ItemStack stack : slots) {
             if (stack.isEmpty()) continue;
             String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
             for (String entry : RadConfig.RADIOACTIVE_ITEMS.get()) {
                 int eq = entry.indexOf('=');
                 if (eq < 0 || !entry.substring(0, eq).equals(id)) continue;
                 try {
-                    worst = Math.max(worst, Double.parseDouble(entry.substring(eq + 1)));
+                    total += Double.parseDouble(entry.substring(eq + 1)) * stack.getCount();
                 } catch (NumberFormatException ignored) {
                     // A malformed config line should not take the engine down with it.
                 }
             }
         }
-        return worst;
+        return total;
     }
 
     /** Total shielding, 0-100. Potion, then each armour piece, then the six sides of the room. */

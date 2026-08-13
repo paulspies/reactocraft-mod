@@ -77,6 +77,7 @@ public final class RadConfig {
 
     // --- inventory radiation, inherited from the retired Radioactive mod ---
     public static final ModConfigSpec.BooleanValue INVENTORY_RADIATION;
+    public static final ModConfigSpec.DoubleValue INVENTORY_MAX_RATE;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> RADIOACTIVE_ITEMS;
 
     // --- the six stages ---
@@ -263,6 +264,13 @@ public final class RadConfig {
                 "The intended answer is to handle uranium in a suit, which is why the suit shields it.")
                 .push("inventory");
         INVENTORY_RADIATION = b.define("enabled", true);
+        INVENTORY_MAX_RATE = b.comment(
+                        "🚨 Dose is per ITEM and SUMMED across every slot, which is HBM's rule. A stack of 64",
+                        "uranium powder at 0.1 is a rate of 6.4, reaching the first symptom in about nine",
+                        "seconds, so this caps how bad a hoard can get.",
+                        "Set to 0 for no cap, which is genuinely brutal.",
+                        "2.0 means a big hoard runs the exposure clock at twice real time.")
+                .defineInRange("max_rate", 2.0D, 0.0D, 1000.0D);
         RADIOACTIVE_ITEMS = b.defineList("radioactive_items",
                 List.of("createnuclear:uranium_rod=0.3",
                         "createnuclear:uranium_bucket=0.3",
