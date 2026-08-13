@@ -15,8 +15,11 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.projectile.ThrownPotion;
+import net.neoforged.neoforge.event.entity.ProjectileImpactEvent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
@@ -299,9 +302,10 @@ public final class RadEngine {
 
         // A Potion of Healing, any level, wipes it completely at any stage. This is the way back
         // once you are past the milk limit. Paul's rule, 2026-08-12.
-        if (RadConfig.HEALING_POTION_CURES.get() && isHealingPotion(event.getItem())) {
-            player.getPersistentData().putInt(EXPOSURE_KEY, 0);
-            player.removeEffect(ModEffects.CONTAMINATION);
+        if (RadConfig.HEALING_POTION_CURES.get()
+                && event.getItem().is(Items.POTION)
+                && isHealingPotion(event.getItem())) {
+            cure(player);
             return;
         }
 
@@ -330,19 +334,47 @@ public final class RadEngine {
     }
 
     /**
-     * True for a drinkable potion carrying Instant Health at any level.
+     * True for any potion item carrying Instant Health at any level, drinkable, splash or lingering.
      *
-     * Checked by effect rather than by potion id so that Healing, Healing II and any modded or
-     * custom bottle that grants instant health all count, which is what "any kind" means.
+     * Checked by EFFECT rather than by potion id so that Healing, Healing II and any modded or
+     * custom bottle granting instant health all count, which is what "any kind" means.
      */
     private static boolean isHealingPotion(ItemStack stack) {
-        if (!stack.is(Items.POTION)) return false;
         PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
-        if (contents == null) return false;
+        return contents != null && hasHeal(contents);
+    }
+
+    private static boolean hasHeal(PotionContents contents) {
         for (MobEffectInstance effect : contents.getAllEffects()) {
             if (effect.getEffect() == MobEffects.HEAL) return true;
         }
         return false;
+    }
+
+    /**
+     * A thrown healing potion cures everyone it lands on. This covers BOTH splash and lingering,
+     * because a lingering potion is also a ThrownPotion at the moment it breaks.
+     *
+     * A separate hook is needed because instant effects never go through addEffect. Vanilla calls
+     * applyInstantenousEffect directly, so the drink hook cannot see a thrown one.
+     */
+    @SubscribeEvent
+    public static void onProjectileImpact(ProjectileImpactEvent event) {
+        if (!RadConfig.HEALING_POTION_CURES.get()) return;
+        if (!(event.getProjectile() instanceof ThrownPotion potion)) return;
+        if (!isHealingPotion(potion.getItem())) return;
+        if (!(potion.level() instanceof ServerLevel level)) return;
+
+        // Matches vanilla's splash radius: 4 wide, 2 tall.
+        AABB box = potion.getBoundingBox().inflate(4.0D, 2.0D, 4.0D);
+        for (ServerPlayer hit : level.getEntitiesOfClass(ServerPlayer.class, box)) {
+            cure(hit);
+        }
+    }
+
+    private static void cure(ServerPlayer player) {
+        player.getPersistentData().putInt(EXPOSURE_KEY, 0);
+        player.removeEffect(ModEffects.CONTAMINATION);
     }
 
     private static void hurt(ServerPlayer player, float amount) {
