@@ -7,6 +7,8 @@
   "effect.reactocraft.radiation.description": "Exposure builds while it lasts. Dizziness first, then damage, then blindness.",
   "effect.reactocraft.weak_radiation": "Weak Radiation",
   "effect.reactocraft.weak_radiation.description": "A mild dose. Enough to make you sick and dizzy, not enough to kill you.",
+  "effect.reactocraft.contamination": "Contamination",
+  "effect.reactocraft.contamination.description": "How poisoned you already are. It does not wear off. Drink milk.",
 
   "item.minecraft.potion.effect.rad_resistance": "Potion of Rad Resistance",
   "item.minecraft.splash_potion.effect.rad_resistance": "Splash Potion of Rad Resistance",

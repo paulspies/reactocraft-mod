@@ -10,6 +10,10 @@ import java.util.List;
  * That is the whole point of this class. The logic is in Java because raycasts and loops belong in
  * Java, but the balance numbers stay editable on the box. Change config\reactocraft-server.toml,
  * restart the server, done. No rebuild, and nobody has to reinstall a client jar to get a tweak.
+ *
+ * As of 2026-08-12 this file also carries what the Radioactive mod used to own. That mod has been
+ * retired to mods-disabled because two systems both owning radiation is what caused the respawn
+ * death loop: our engine listened to these numbers and Radioactive's inventory radiation did not.
  */
 public final class RadConfig {
     private RadConfig() {}
@@ -19,10 +23,19 @@ public final class RadConfig {
     // --- timing ---
     public static final ModConfigSpec.IntValue DOSE_INTERVAL;
 
+    // --- rates: how fast each source fills the exposure clock ---
+    public static final ModConfigSpec.DoubleValue RATE_RADIATION;
+    public static final ModConfigSpec.DoubleValue RATE_RADIATION_STRONG;
+    public static final ModConfigSpec.DoubleValue RATE_WEAK_RADIATION;
+    public static final ModConfigSpec.IntValue REFERENCE_STRENGTH;
+
     // --- shielding ---
     public static final ModConfigSpec.IntValue RESISTANCE_I;
     public static final ModConfigSpec.IntValue RESISTANCE_II;
-    public static final ModConfigSpec.IntValue SUIT_SHIELD;
+    public static final ModConfigSpec.IntValue SUIT_HELMET;
+    public static final ModConfigSpec.IntValue SUIT_CHESTPLATE;
+    public static final ModConfigSpec.IntValue SUIT_LEGGINGS;
+    public static final ModConfigSpec.IntValue SUIT_BOOTS;
     public static final ModConfigSpec.IntValue BLOCK_SHIELD_PER_SIDE;
     public static final ModConfigSpec.IntValue BLOCK_SHIELD_RANGE;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> SHIELDING_BLOCKS;
@@ -30,14 +43,20 @@ public final class RadConfig {
     // --- zones ---
     public static final ModConfigSpec.IntValue ZONE_RADIUS;
 
-    // --- staging ---
-    public static final ModConfigSpec.IntValue EXPOSURE_MAX;
-    public static final ModConfigSpec.IntValue STAGE_NAUSEA_AT;
-    public static final ModConfigSpec.IntValue STAGE_DAMAGE_AT;
-    public static final ModConfigSpec.IntValue STAGE_BLIND_AT;
+    // --- inventory radiation, inherited from the retired Radioactive mod ---
+    public static final ModConfigSpec.BooleanValue INVENTORY_RADIATION;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> RADIOACTIVE_ITEMS;
+
+    // --- the six stages ---
+    public static final ModConfigSpec.IntValue STAGE_1_NAUSEA;
+    public static final ModConfigSpec.IntValue STAGE_2_SLOWNESS;
+    public static final ModConfigSpec.IntValue STAGE_3_MINING_FATIGUE;
+    public static final ModConfigSpec.IntValue STAGE_4_POISON;
+    public static final ModConfigSpec.IntValue STAGE_5_DAMAGE;
+    public static final ModConfigSpec.IntValue STAGE_6_WITHER;
     public static final ModConfigSpec.DoubleValue DAMAGE_PER_DOSE;
-    public static final ModConfigSpec.IntValue EXPOSURE_DECAY;
-    public static final ModConfigSpec.IntValue WEAK_CAP;
+    public static final ModConfigSpec.IntValue NATURAL_RECOVERY;
+    public static final ModConfigSpec.BooleanValue MILK_CLEARS_EXPOSURE;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -47,15 +66,43 @@ public final class RadConfig {
         DOSE_INTERVAL = b.defineInRange("dose_interval_ticks", 60, 20, 1200);
         b.pop();
 
-        b.comment("Shielding percentages. These add together and are capped at 100.").push("shielding");
+        b.comment(
+                "Exposure is counted in SECONDS of contamination, so every stage number below reads as",
+                "a clock. A source at rate 1.0 fills it in real time.",
+                "",
+                "Strength is rate times duration, which is why potion length and potion tier both matter",
+                "without needing separate tables:",
+                "    Radiation      3:00 at 1.0  = 180  -> stops at Mining Fatigue",
+                "    Radiation ext  8:00 at 1.0  = 480  -> past Wither",
+                "    Radiation II   1:30 at 4.0  = 360  -> reaches Wither, fast and brutal",
+                "    Weak Radiation 1:30 at 1.0  =  90  -> Nausea only, never worse").push("rates");
+        RATE_RADIATION = b.comment("Radiation, level I")
+                .defineInRange("radiation", 1.0D, 0.0D, 100.0D);
+        RATE_RADIATION_STRONG = b.comment("Radiation II, the glowstone variant")
+                .defineInRange("radiation_strong", 4.0D, 0.0D, 100.0D);
+        RATE_WEAK_RADIATION = b.comment("Weak Radiation, the fermented spider eye branch")
+                .defineInRange("weak_radiation", 1.0D, 0.0D, 100.0D);
+        REFERENCE_STRENGTH = b.comment(
+                        "The zone strength that fills at rate 1.0. At 20, a rad_20 zone runs in real time,",
+                        "rad_50 is 2.5x and rad_100 is 5x. Leave it alone unless you want every zone to",
+                        "shift at once.")
+                .defineInRange("reference_zone_strength", 20, 1, 100);
+        b.pop();
+
+        b.comment("Shielding percentages. They add together and cap at 100.").push("shielding");
         RESISTANCE_I = b.comment("Potion of Rad Resistance, level I")
                 .defineInRange("resistance_i", 50, 0, 100);
         RESISTANCE_II = b.comment("Potion of Rad Resistance, level II")
                 .defineInRange("resistance_ii", 75, 0, 100);
-        SUIT_SHIELD = b.comment("A full four-piece anti-radiation armour set")
-                .defineInRange("suit_shield", 100, 0, 100);
+        b.comment("Create Nuclear's anti-radiation armour, per piece. The four add to 100 for a full set,",
+                  "which matches what the retired Radioactive mod used.").push("suit");
+        SUIT_HELMET = b.defineInRange("helmet", 25, 0, 100);
+        SUIT_CHESTPLATE = b.defineInRange("chestplate", 35, 0, 100);
+        SUIT_LEGGINGS = b.defineInRange("leggings", 25, 0, 100);
+        SUIT_BOOTS = b.defineInRange("boots", 15, 0, 100);
+        b.pop();
         BLOCK_SHIELD_PER_SIDE = b.comment(
-                        "Shield percent per shielded side. Six sides are checked: up, down, and the four",
+                        "Shield percent per shielded side. Six sides are checked: up, down and the four",
                         "horizontals. At 20, a fully sealed lead room is 120, which caps at 100.")
                 .defineInRange("block_shield_per_side", 20, 0, 100);
         BLOCK_SHIELD_RANGE = b.comment("How many blocks out to look on each of the six sides")
@@ -71,24 +118,50 @@ public final class RadConfig {
                 .defineInRange("zone_radius", 8, 1, 64);
         b.pop();
 
-        b.comment("Exposure builds while you take doses and decays when you don't.",
-                  "The stages below are percentages of exposure_max.").push("staging");
-        EXPOSURE_MAX = b.defineInRange("exposure_max", 100, 10, 10000);
-        STAGE_NAUSEA_AT = b.comment("Dizziness and screen movement start here")
-                .defineInRange("stage_nausea_at", 20, 0, 100);
-        STAGE_DAMAGE_AT = b.comment("Health damage starts here")
-                .defineInRange("stage_damage_at", 40, 0, 100);
-        STAGE_BLIND_AT = b.comment("Blindness starts here")
-                .defineInRange("stage_blind_at", 70, 0, 100);
-        DAMAGE_PER_DOSE = b.comment("Half a heart is 1.0. Scales up with exposure past stage_damage_at.")
+        b.comment(
+                "Carrying raw nuclear material irradiates you. This replaces the retired Radioactive",
+                "mod's inventory radiation, which sat at 20 RADs a second and killed anyone who picked",
+                "up uranium powder to brew with. Format is item=rate, using the same rate scale as above,",
+                "so 0.1 means a tenth of real time and takes about half an hour to reach stage 1.",
+                "",
+                "The intended answer is to handle uranium in a suit, which is why the suit shields it.")
+                .push("inventory");
+        INVENTORY_RADIATION = b.define("enabled", true);
+        RADIOACTIVE_ITEMS = b.defineList("radioactive_items",
+                List.of("createnuclear:uranium_rod=0.3",
+                        "createnuclear:uranium_bucket=0.3",
+                        "createnuclear:raw_uranium_block=0.3",
+                        "createnuclear:enriched_yellowcake=0.2",
+                        "createnuclear:uranium_powder=0.1",
+                        "createnuclear:raw_uranium=0.1"),
+                o -> o instanceof String);
+        b.pop();
+
+        b.comment(
+                "The six stages, in seconds of accumulated exposure. One symptom a minute by default.",
+                "",
+                "🚨 EXPOSURE DOES NOT WEAR OFF. Paul's spec, 2026-08-12: the effects stay until you get",
+                "help. Milk is the cure. Set natural_recovery_seconds above 0 if you want it to fade.",
+                "",
+                "The Contamination effect's LEVEL is the stage reached, so the HUD reads Contamination IV",
+                "and you can see how far gone you are without any counter item.").push("staging");
+        STAGE_1_NAUSEA = b.defineInRange("stage_1_nausea_seconds", 60, 1, 100000);
+        STAGE_2_SLOWNESS = b.defineInRange("stage_2_slowness_seconds", 120, 1, 100000);
+        STAGE_3_MINING_FATIGUE = b.defineInRange("stage_3_mining_fatigue_seconds", 180, 1, 100000);
+        STAGE_4_POISON = b.comment("Poison cannot kill on its own, vanilla stops it at half a heart")
+                .defineInRange("stage_4_poison_seconds", 240, 1, 100000);
+        STAGE_5_DAMAGE = b.comment("Radiation damage. The first stage that can kill you.")
+                .defineInRange("stage_5_damage_seconds", 300, 1, 100000);
+        STAGE_6_WITHER = b.comment("Wither on top of the damage. The end of the road.")
+                .defineInRange("stage_6_wither_seconds", 360, 1, 100000);
+        DAMAGE_PER_DOSE = b.comment("Half a heart is 1.0. Stage 5 and up only, and it ramps from there.")
                 .defineInRange("damage_per_dose", 1.0D, 0.0D, 100.0D);
-        EXPOSURE_DECAY = b.comment("Exposure lost per interval when you are not being dosed")
-                .defineInRange("exposure_decay", 2, 0, 1000);
-        WEAK_CAP = b.comment(
-                        "Ceiling on exposure, as a percent, when Weak Radiation is the only thing dosing you.",
-                        "Keep this below stage_damage_at or a 'weak' potion will eventually kill someone.",
-                        "Paul's spec was sick and dizzy, nothing worse.")
-                .defineInRange("weak_radiation_cap", 35, 0, 100);
+        NATURAL_RECOVERY = b.comment(
+                        "Seconds of exposure shed per interval while clean. 0 means it never fades and milk",
+                        "is the only cure, which is the intended design.")
+                .defineInRange("natural_recovery_seconds", 0, 0, 1000);
+        MILK_CLEARS_EXPOSURE = b.comment("Milk wipes the accumulated clock, not just the symptoms")
+                .define("milk_clears_exposure", true);
         b.pop();
 
         SPEC = b.build();
