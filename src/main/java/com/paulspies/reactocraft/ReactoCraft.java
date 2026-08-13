@@ -38,6 +38,7 @@ public class ReactoCraft {
         NeoForge.EVENT_BUS.register(ModBrewing.class);
         NeoForge.EVENT_BUS.register(RadEngine.class);
         NeoForge.EVENT_BUS.register(RadCuring.class);
+        NeoForge.EVENT_BUS.register(Fallout.class);
     }
 
     /** Without this the cow has no health or speed and the game refuses to spawn it. */

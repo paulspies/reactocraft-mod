@@ -72,6 +72,13 @@ public class ChunkRadiation extends SavedData {
         return rads.size();
     }
 
+    /** A snapshot, so callers can edit the world without tripping over the live map. */
+    public java.util.List<ChunkPos> contaminated() {
+        java.util.List<ChunkPos> out = new java.util.ArrayList<>(rads.size());
+        for (Long key : rads.keySet()) out.add(new ChunkPos(key));
+        return out;
+    }
+
     // --- the once-a-second pass ----------------------------------------------------------------
 
     /**

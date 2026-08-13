@@ -57,6 +57,23 @@ public final class RadConfig {
     public static final ModConfigSpec.BooleanValue REGEN_CLEANS_LAND;
     public static final ModConfigSpec.DoubleValue REGEN_CLEANUP_RADS;
     public static final ModConfigSpec.DoubleValue REGEN_LINGERING_MULTIPLIER;
+    public static final ModConfigSpec.BooleanValue FALLOUT_ON_EXPLOSION;
+    public static final ModConfigSpec.DoubleValue FALLOUT_MIN_RADIUS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> FALLOUT_TRIGGER_BLOCKS;
+    public static final ModConfigSpec.DoubleValue FALLOUT_RADS;
+    public static final ModConfigSpec.IntValue FALLOUT_CHUNK_RADIUS;
+    public static final ModConfigSpec.DoubleValue FALLOUT_FIRE_CHANCE;
+    public static final ModConfigSpec.IntValue FALLOUT_FIRE_CHUNK_RADIUS;
+
+    // --- land decay ---
+    public static final ModConfigSpec.BooleanValue LAND_DECAY;
+    public static final ModConfigSpec.DoubleValue DECAY_MID_RADS;
+    public static final ModConfigSpec.DoubleValue DECAY_HEAVY_RADS;
+    public static final ModConfigSpec.IntValue DECAY_BLOCKS_PER_PASS;
+    public static final ModConfigSpec.DoubleValue DECAY_CHANCE;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> DECAY_LIGHT;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> DECAY_MID;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> DECAY_HEAVY;
 
     // --- inventory radiation, inherited from the retired Radioactive mod ---
     public static final ModConfigSpec.BooleanValue INVENTORY_RADIATION;
@@ -199,6 +216,37 @@ public final class RadConfig {
                 .defineInRange("cleanup_rads", 150.0D, 0.0D, 100000.0D);
         REGEN_LINGERING_MULTIPLIER = b.comment("Lingering versions are worth this much more")
                 .defineInRange("lingering_multiplier", 3.0D, 0.0D, 100.0D);
+        FALLOUT_ON_EXPLOSION = b.comment(
+                        "A big enough explosion, or one that destroys reactor or uranium blocks, leaves",
+                        "fallout behind. Kolten's ask, 2026-08-13.")
+                .define("fallout_on_explosion", true);
+        FALLOUT_MIN_RADIUS = b.comment(
+                        "Explosions at or above this radius count as nuclear. TNT is 4.0 and a creeper is 3.0,",
+                        "so 6.0 keeps ordinary accidents clean.")
+                .defineInRange("fallout_min_radius", 6.0D, 1.0D, 1000.0D);
+        FALLOUT_TRIGGER_BLOCKS = b.comment(
+                        "Any explosion that destroys one of these is nuclear regardless of its size, so a small",
+                        "reactor failure still contaminates.")
+                .defineList("fallout_trigger_blocks",
+                        List.of("createnuclear:reactor_core", "createnuclear:reactor_casing",
+                                "createnuclear:reactor_controller", "createnuclear:raw_uranium_block",
+                                "createnuclear:uranium_ore", "createnuclear:deepslate_uranium_ore"),
+                        o -> o instanceof String);
+        FALLOUT_RADS = b.comment("Rads dropped on the epicentre chunk. Neighbours get less with distance.")
+                .defineInRange("fallout_rads", 2000.0D, 0.0D, 100000.0D);
+        FALLOUT_CHUNK_RADIUS = b.comment("How many chunks out the fallout reaches")
+                .defineInRange("fallout_chunk_radius", 4, 0, 32);
+        FALLOUT_FIRE_CHANCE = b.comment(
+                        "Chance per surface column of catching fire. Kolten likes HBM's burning blast sites.",
+                        "🔑 Fire only ever lands on a block that is genuinely FLAMMABLE with air above it, which",
+                        "is HBM's own rule. A forest goes up, a stone crater stays quiet.",
+                        "HBM uses a flat one in five inside 65 blocks; 0.2 here matches that.",
+                        "⚠️ Fire spreads on its own. That is the point and also how you lose a forest.")
+                .defineInRange("fallout_fire_chance", 0.2D, 0.0D, 1.0D);
+        FALLOUT_FIRE_CHUNK_RADIUS = b.comment(
+                        "How many chunks out can catch. HBM burns within 65 blocks, so 4 chunks is the match.",
+                        "Set to 0 for the epicentre chunk only, or -1 to disable fire entirely.")
+                .defineInRange("fallout_fire_chunk_radius", 4, -1, 32);
         CHUNK_RADS_PER_RATE = b.comment(
                         "How many chunk rads equal a rate of 1.0, which is the exposure clock running in",
                         "real time. At 100, a chunk sitting at 500 doses you five times as fast as a rad_20",
@@ -223,6 +271,94 @@ public final class RadConfig {
                         "createnuclear:uranium_powder=0.1",
                         "createnuclear:raw_uranium=0.1"),
                 o -> o instanceof String);
+        b.pop();
+
+        b.comment(
+                "The ground rots where the radiation is. Table-driven, the way HBM's FalloutConfigJSON",
+                "is, so you and Kolten can retune what turns into what without a rebuild.",
+                "",
+                "🔑 THE TIER IS THE CHUNK'S RADIATION, not the distance from a blast. A thrown potion only",
+                "ever reaches LIGHT, so it kills grass and leaves shrubs. A reactor reaches HEAVY and gives",
+                "ash, mud and burnt trunks. One rule, severity falls out of the number already tracked.",
+                "",
+                "⚠️ Block edits need a LOADED chunk, so the visuals only advance where somebody is. The",
+                "radiation itself is level data and never has this problem.",
+                "",
+                "Format is from=to. A line naming a block that is not installed is skipped quietly.")
+                .push("land_decay");
+        LAND_DECAY = b.define("enabled", true);
+        DECAY_MID_RADS = b.comment("At or above this, use the MID table")
+                .defineInRange("mid_tier_rads", 150.0D, 0.0D, 100000.0D);
+        DECAY_HEAVY_RADS = b.comment("At or above this, use the HEAVY table")
+                .defineInRange("heavy_tier_rads", 400.0D, 0.0D, 100000.0D);
+        DECAY_BLOCKS_PER_PASS = b.comment("Conversion attempts per contaminated loaded chunk, per pass")
+                .defineInRange("blocks_per_pass", 2, 0, 64);
+        DECAY_CHANCE = b.comment(
+                        "Chance each attempt actually converts. Lower means the land dies more slowly.",
+                        "0.25 with 2 attempts a second lands roughly in Paul's one-to-three Minecraft days.")
+                .defineInRange("chance_per_attempt", 0.25D, 0.0D, 1.0D);
+        DECAY_LIGHT = b.comment("LIGHT: the plants die and nothing else. Thrown potions stop here.")
+                .defineList("light", List.of(
+                        "minecraft:short_grass=minecraft:dead_bush",
+                        "minecraft:tall_grass=minecraft:dead_bush",
+                        "minecraft:fern=minecraft:dead_bush",
+                        "minecraft:large_fern=minecraft:dead_bush",
+                        "minecraft:dandelion=minecraft:dead_bush",
+                        "minecraft:poppy=minecraft:dead_bush",
+                        "minecraft:blue_orchid=minecraft:dead_bush",
+                        "minecraft:allium=minecraft:dead_bush",
+                        "minecraft:azure_bluet=minecraft:dead_bush",
+                        "minecraft:oxeye_daisy=minecraft:dead_bush",
+                        "minecraft:cornflower=minecraft:dead_bush",
+                        "minecraft:sweet_berry_bush=minecraft:dead_bush",
+                        "minecraft:oak_sapling=minecraft:air",
+                        "minecraft:birch_sapling=minecraft:air",
+                        "minecraft:spruce_sapling=minecraft:air",
+                        "minecraft:wheat=minecraft:air",
+                        "minecraft:carrots=minecraft:air",
+                        "minecraft:potatoes=minecraft:air"),
+                        o -> o instanceof String);
+        DECAY_MID = b.comment("MID: the ground turns and the trees start to go")
+                .defineList("mid", List.of(
+                        "minecraft:grass_block=minecraft:rooted_dirt",
+                        "minecraft:podzol=minecraft:rooted_dirt",
+                        "minecraft:mycelium=minecraft:rooted_dirt",
+                        "minecraft:dirt=minecraft:coarse_dirt",
+                        "minecraft:sand=chipped:ash_sand",
+                        "minecraft:oak_leaves=chipped:dead_oak_leaves",
+                        "minecraft:birch_leaves=chipped:dead_birch_leaves",
+                        "minecraft:spruce_leaves=chipped:dead_spruce_leaves",
+                        "minecraft:jungle_leaves=chipped:dead_jungle_leaves",
+                        "minecraft:acacia_leaves=chipped:dead_acacia_leaves",
+                        "minecraft:dark_oak_leaves=chipped:dead_dark_oak_leaves",
+                        "minecraft:short_grass=minecraft:dead_bush",
+                        "minecraft:tall_grass=minecraft:dead_bush"),
+                        o -> o instanceof String);
+        DECAY_HEAVY = b.comment("HEAVY: ash, mud and burnt trunks. Only a reactor gets you here.")
+                .defineList("heavy", List.of(
+                        "minecraft:grass_block=supplementaries:ash",
+                        "minecraft:rooted_dirt=minecraft:mud",
+                        "minecraft:coarse_dirt=minecraft:mud",
+                        "minecraft:dirt=minecraft:mud",
+                        "minecraft:podzol=minecraft:mud",
+                        "minecraft:mycelium=minecraft:mud",
+                        "minecraft:sand=chipped:ash_sand",
+                        "minecraft:oak_log=minecraft:polished_basalt",
+                        "minecraft:birch_log=minecraft:polished_basalt",
+                        "minecraft:spruce_log=minecraft:polished_basalt",
+                        "minecraft:jungle_log=minecraft:polished_basalt",
+                        "minecraft:acacia_log=minecraft:polished_basalt",
+                        "minecraft:dark_oak_log=minecraft:polished_basalt",
+                        "minecraft:oak_leaves=minecraft:air",
+                        "minecraft:birch_leaves=minecraft:air",
+                        "minecraft:spruce_leaves=minecraft:air",
+                        "minecraft:jungle_leaves=minecraft:air",
+                        "minecraft:acacia_leaves=minecraft:air",
+                        "minecraft:dark_oak_leaves=minecraft:air",
+                        "minecraft:short_grass=minecraft:air",
+                        "minecraft:tall_grass=minecraft:air",
+                        "minecraft:dead_bush=minecraft:air"),
+                        o -> o instanceof String);
         b.pop();
 
         b.comment(

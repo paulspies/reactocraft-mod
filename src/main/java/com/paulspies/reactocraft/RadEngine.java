@@ -399,11 +399,15 @@ public final class RadEngine {
         if (event.getServer().getTickCount() % RadConfig.CHUNK_UPDATE_TICKS.get() != 0) return;
 
         for (ServerLevel level : event.getServer().getAllLevels()) {
-            ChunkRadiation.get(level).diffuse(
+            ChunkRadiation rads = ChunkRadiation.get(level);
+            rads.diffuse(
                     RadConfig.DIFFUSE_KEEP.get().floatValue(),
                     RadConfig.DIFFUSE_SIDE.get().floatValue(),
                     RadConfig.DIFFUSE_DIAGONAL.get().floatValue(),
                     RadConfig.CHUNK_DECAY.get().floatValue());
+
+            // The ground rots on the same pass, so the visuals stay in step with the numbers.
+            LandDecay.tick(level, rads);
         }
     }
 
