@@ -1,4 +1,10 @@
 {
+  "entity.reactocraft.irradiated_cow": "Irradiated Cow",
+  "item.reactocraft.irradiated_cow_spawn_egg": "Irradiated Cow Spawn Egg",
+
+  "item.reactocraft.chocolate_milk_bucket": "Chocolate Milk",
+  "item.reactocraft.chocolate_milk_bottle": "Bottle of Chocolate Milk",
+
   "effect.reactocraft.rad_resistance": "Rad Resistance",
   "effect.reactocraft.rad_resistance.description": "Absorbs part of every radiation dose. Stacks with an anti-radiation suit and with shielded walls.",
   "effect.reactocraft.rad_weakness": "Rad Weakness",

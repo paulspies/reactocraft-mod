@@ -1,0 +1,19 @@
+{
+  "neoforge:conditions": [
+    {
+      "type": "neoforge:mod_loaded",
+      "modid": "farmersdelight"
+    }
+  ],
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "group": "chocolate_milk",
+  "ingredients": [
+    { "item": "farmersdelight:milk_bottle" },
+    { "item": "minecraft:cocoa_beans" }
+  ],
+  "result": {
+    "id": "reactocraft:chocolate_milk_bottle",
+    "count": 1
+  }
+}

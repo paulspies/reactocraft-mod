@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "group": "chocolate_milk",
+  "ingredients": [
+    { "item": "minecraft:milk_bucket" },
+    { "item": "minecraft:cocoa_beans" }
+  ],
+  "result": {
+    "id": "reactocraft:chocolate_milk_bucket",
+    "count": 1
+  }
+}

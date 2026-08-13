@@ -43,6 +43,21 @@ public final class RadConfig {
     // --- zones ---
     public static final ModConfigSpec.IntValue ZONE_RADIUS;
 
+    // --- chunk radiation ---
+    public static final ModConfigSpec.BooleanValue CHUNK_RADIATION;
+    public static final ModConfigSpec.IntValue CHUNK_UPDATE_TICKS;
+    public static final ModConfigSpec.DoubleValue DIFFUSE_KEEP;
+    public static final ModConfigSpec.DoubleValue DIFFUSE_SIDE;
+    public static final ModConfigSpec.DoubleValue DIFFUSE_DIAGONAL;
+    public static final ModConfigSpec.DoubleValue CHUNK_DECAY;
+    public static final ModConfigSpec.DoubleValue CHUNK_RADS_PER_RATE;
+    public static final ModConfigSpec.DoubleValue MIN_DOSE_RADS;
+    public static final ModConfigSpec.DoubleValue POTION_RADS;
+    public static final ModConfigSpec.DoubleValue POTION_RADS_STRONG;
+    public static final ModConfigSpec.BooleanValue REGEN_CLEANS_LAND;
+    public static final ModConfigSpec.DoubleValue REGEN_CLEANUP_RADS;
+    public static final ModConfigSpec.DoubleValue REGEN_LINGERING_MULTIPLIER;
+
     // --- inventory radiation, inherited from the retired Radioactive mod ---
     public static final ModConfigSpec.BooleanValue INVENTORY_RADIATION;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> RADIOACTIVE_ITEMS;
@@ -63,6 +78,9 @@ public final class RadConfig {
     public static final ModConfigSpec.IntValue MILK_FULL_CURE_LIMIT;
     public static final ModConfigSpec.IntValue MILK_PARTIAL_RELIEF;
     public static final ModConfigSpec.BooleanValue HEALING_POTION_CURES;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> CHOCOLATE_ITEMS;
+    public static final ModConfigSpec.IntValue CHOCOLATE_FULL_CURE_LIMIT;
+    public static final ModConfigSpec.IntValue CHOCOLATE_PARTIAL_RELIEF;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -127,6 +145,65 @@ public final class RadConfig {
         b.comment("Radiation zones placed by /function rad:zone_*").push("zones");
         ZONE_RADIUS = b.comment("How close a zone entity has to be to dose you")
                 .defineInRange("zone_radius", 8, 1, 64);
+        b.pop();
+
+        b.comment(
+                "Contamination held per CHUNK, which is how a blast site stays dirty after the blast.",
+                "Design taken from HBM's Nuclear Tech Mod, no code from it. See ChunkRadiation.java.",
+                "",
+                "🚨 This is the cheap way. Nothing scans blocks. One float per contaminated chunk, one",
+                "pass a second. Radioactive's block scan cost 136 ms of a 50 ms tick and is why it is",
+                "retired.",
+                "",
+                "Spreading uses a 3x3 kernel and the three shares should total 1.0, or contamination",
+                "will grow or vanish on its own regardless of the decay setting.").push("chunk_radiation");
+        CHUNK_RADIATION = b.define("enabled", true);
+        CHUNK_UPDATE_TICKS = b.comment("How often the spread and decay pass runs")
+                .defineInRange("update_interval_ticks", 20, 20, 1200);
+        DIFFUSE_KEEP = b.comment("Share that stays in the chunk")
+                .defineInRange("diffuse_keep", 0.60D, 0.0D, 1.0D);
+        DIFFUSE_SIDE = b.comment("Share to each of the 4 orthogonal neighbours")
+                .defineInRange("diffuse_side", 0.075D, 0.0D, 1.0D);
+        DIFFUSE_DIAGONAL = b.comment("Share to each of the 4 diagonal neighbours")
+                .defineInRange("diffuse_diagonal", 0.025D, 0.0D, 1.0D);
+        CHUNK_DECAY = b.comment(
+                        "Kept per pass. 0.999 at one pass a second leaves about 3% after three Minecraft",
+                        "days, which is Kolten's spec: a blast site cleans itself up eventually.",
+                        "Lower it to make fallout fade faster, raise it toward 1.0 for near-permanent.")
+                .defineInRange("decay_per_pass", 0.999D, 0.9D, 1.0D);
+        MIN_DOSE_RADS = b.comment(
+                        "🚨 A chunk below this does not dose anyone at all, and this number is load bearing.",
+                        "The exposure clock SELF-ADVANCES once started, so without a floor a single lingering",
+                        "rad would eventually kill someone hours later. It is also what gives thrown potions a",
+                        "lifespan: they fade below this and stop mattering.")
+                .defineInRange("min_dose_rads", 10.0D, 0.0D, 10000.0D);
+        POTION_RADS = b.comment(
+                        "Rads a thrown Radiation potion leaves in the ground. Paul's spec, 2026-08-13: a splash",
+                        "or lingering potion dirties a SMALL patch for about ONE Minecraft day, not three, and",
+                        "one healing or regeneration potion cleans it up.",
+                        "35 rads decays past min_dose in roughly a Minecraft day at the default decay.")
+                .defineInRange("thrown_radiation_rads", 35.0D, 0.0D, 100000.0D);
+        POTION_RADS_STRONG = b.comment(
+                        "Radiation II, about two Minecraft days. Still under cleanup_rads so a single healing",
+                        "potion clears it, which is Paul's rule.")
+                .defineInRange("thrown_radiation_rads_strong", 100.0D, 0.0D, 100000.0D);
+        REGEN_CLEANS_LAND = b.comment(
+                        "A thrown Healing or Regeneration potion scrubs contamination out of the ground.",
+                        "Paul's idea, 2026-08-13. This is the cleanup crew's actual tool: breaking irradiated",
+                        "blocks removes the source, but the contamination outlives the block, and without this",
+                        "there is no way to clean it up at all.")
+                .define("healing_potions_clean_land", true);
+        REGEN_CLEANUP_RADS = b.comment(
+                        "Rads removed from the chunk it lands in. Neighbours get a quarter of this, so a throw",
+                        "near a border still helps both sides.")
+                .defineInRange("cleanup_rads", 150.0D, 0.0D, 100000.0D);
+        REGEN_LINGERING_MULTIPLIER = b.comment("Lingering versions are worth this much more")
+                .defineInRange("lingering_multiplier", 3.0D, 0.0D, 100.0D);
+        CHUNK_RADS_PER_RATE = b.comment(
+                        "How many chunk rads equal a rate of 1.0, which is the exposure clock running in",
+                        "real time. At 100, a chunk sitting at 500 doses you five times as fast as a rad_20",
+                        "zone does.")
+                .defineInRange("rads_per_rate", 100.0D, 1.0D, 100000.0D);
         b.pop();
 
         b.comment(
@@ -212,6 +289,16 @@ public final class RadConfig {
                 .defineInRange("milk_full_cure_limit_seconds", 180, 0, 100000);
         MILK_PARTIAL_RELIEF = b.comment("Past the limit, each milk only takes this many seconds off")
                 .defineInRange("milk_partial_relief_seconds", 60, 0, 100000);
+        CHOCOLATE_ITEMS = b.comment(
+                        "Chocolate milk, the middle rung of the cure ladder. Crafted from milk plus cocoa",
+                        "beans, so it costs something without needing a brewing stand.")
+                .defineList("chocolate_milk_items",
+                        List.of("reactocraft:chocolate_milk_bucket", "reactocraft:chocolate_milk_bottle"),
+                        o -> o instanceof String);
+        CHOCOLATE_FULL_CURE_LIMIT = b.comment("Below this, chocolate milk cures completely")
+                .defineInRange("chocolate_full_cure_limit_seconds", 300, 0, 100000);
+        CHOCOLATE_PARTIAL_RELIEF = b.comment("Past the limit, each drink takes this many seconds off")
+                .defineInRange("chocolate_partial_relief_seconds", 180, 0, 100000);
         HEALING_POTION_CURES = b.comment(
                         "A Potion of Healing, any level, wipes contamination completely at any stage. This is",
                         "the answer to being past the milk limit. Paul's rule, 2026-08-12.",

@@ -22,12 +22,14 @@ import net.minecraft.world.entity.projectile.ThrownPotion;
 import net.neoforged.neoforge.event.entity.ProjectileImpactEvent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.util.List;
 
@@ -103,8 +105,27 @@ public final class RadEngine {
         // Weak Radiation is handled in onPlayerTick and never reaches the clock. See there for why.
 
         rate = Math.max(rate, zoneRate(player));
+        rate = Math.max(rate, chunkRate(player));
         rate = Math.max(rate, inventoryRate(player));
         return rate;
+    }
+
+    /**
+     * Contamination held in the chunk you are standing in. This is the fallout system: one float per
+     * chunk, no block scanning, and it exists whether or not the chunk is loaded.
+     */
+    private static double chunkRate(ServerPlayer player) {
+        if (!RadConfig.CHUNK_RADIATION.get()) return 0.0D;
+        if (!(player.level() instanceof ServerLevel level)) return 0.0D;
+
+        float rads = ChunkRadiation.get(level).get(player.chunkPosition());
+
+        // 🚨 Below the floor a chunk does not dose at all. This is load bearing: the exposure clock
+        // self-advances once started, so a single lingering rad would eventually kill someone hours
+        // later. It is also what gives thrown potions a lifespan rather than a permanent scar.
+        if (rads < RadConfig.MIN_DOSE_RADS.get()) return 0.0D;
+
+        return rads / RadConfig.CHUNK_RADS_PER_RATE.get();
     }
 
     /** Zones placed by /function rad:zone_* are entities tagged "rad" plus "rad_<strength>". */
@@ -310,24 +331,37 @@ public final class RadEngine {
         }
 
         if (!RadConfig.MILK_CLEARS_EXPOSURE.get()) return;
-        if (!isMilk(event.getItem())) return;
+
+        String id = BuiltInRegistries.ITEM.getKey(event.getItem().getItem()).toString();
+        int fullCure;
+        int relief;
+
+        if (RadConfig.CHOCOLATE_ITEMS.get().contains(id)) {
+            fullCure = RadConfig.CHOCOLATE_FULL_CURE_LIMIT.get();
+            relief = RadConfig.CHOCOLATE_PARTIAL_RELIEF.get();
+        } else if (RadConfig.MILK_ITEMS.get().contains(id)) {
+            fullCure = RadConfig.MILK_FULL_CURE_LIMIT.get();
+            relief = RadConfig.MILK_PARTIAL_RELIEF.get();
+        } else {
+            return;
+        }
 
         CompoundTag data = player.getPersistentData();
         int exposure = data.getInt(EXPOSURE_KEY);
 
-        if (exposure <= RadConfig.MILK_FULL_CURE_LIMIT.get()) {
+        if (exposure <= fullCure) {
             data.putInt(EXPOSURE_KEY, 0);
-            // A vanilla milk BUCKET strips every effect by itself, but Farmer's Delight's bottle may
-            // not, so Contamination is removed explicitly rather than assumed gone.
+            // A vanilla milk BUCKET strips every effect by itself, but Farmer's Delight's bottle and
+            // our own drinks do not, so Contamination goes explicitly rather than being assumed gone.
             player.removeEffect(ModEffects.CONTAMINATION);
             return;
         }
 
-        int left = Math.max(0, exposure - RadConfig.MILK_PARTIAL_RELIEF.get());
+        int left = Math.max(0, exposure - relief);
         data.putInt(EXPOSURE_KEY, left);
 
-        // Vanilla milk stripped Contamination on the way in, so put it back at the level that is
-        // still deserved. Otherwise the HUD would claim you were clean while the clock kept running.
+        // A milk bucket stripped Contamination on the way in, so put it back at the level still
+        // deserved. Otherwise the HUD would claim you were clean while the clock kept running.
         int stage = stageFor(left);
         if (stage > 0) {
             player.addEffect(new MobEffectInstance(
@@ -354,6 +388,26 @@ public final class RadEngine {
     }
 
     /**
+     * The spread and decay pass, once a second by default.
+     *
+     * This is the ENTIRE per-tick cost of the fallout system: one pass over a map that only holds
+     * contaminated chunks. An empty world does nothing at all.
+     */
+    @SubscribeEvent
+    public static void onServerTick(ServerTickEvent.Post event) {
+        if (!RadConfig.CHUNK_RADIATION.get()) return;
+        if (event.getServer().getTickCount() % RadConfig.CHUNK_UPDATE_TICKS.get() != 0) return;
+
+        for (ServerLevel level : event.getServer().getAllLevels()) {
+            ChunkRadiation.get(level).diffuse(
+                    RadConfig.DIFFUSE_KEEP.get().floatValue(),
+                    RadConfig.DIFFUSE_SIDE.get().floatValue(),
+                    RadConfig.DIFFUSE_DIAGONAL.get().floatValue(),
+                    RadConfig.CHUNK_DECAY.get().floatValue());
+        }
+    }
+
+    /**
      * A thrown healing potion cures everyone it lands on. This covers BOTH splash and lingering,
      * because a lingering potion is also a ThrownPotion at the moment it breaks.
      *
@@ -362,22 +416,98 @@ public final class RadEngine {
      */
     @SubscribeEvent
     public static void onProjectileImpact(ProjectileImpactEvent event) {
-        if (!RadConfig.HEALING_POTION_CURES.get()) return;
         if (!(event.getProjectile() instanceof ThrownPotion potion)) return;
-        if (!isHealingPotion(potion.getItem())) return;
         if (!(potion.level() instanceof ServerLevel level)) return;
 
-        // Matches vanilla's splash radius: 4 wide, 2 tall.
-        AABB box = potion.getBoundingBox().inflate(4.0D, 2.0D, 4.0D);
-        for (ServerPlayer hit : level.getEntitiesOfClass(ServerPlayer.class, box)) {
-            cure(hit);
+        if (RadConfig.HEALING_POTION_CURES.get() && isHealingPotion(potion.getItem())) {
+            // Matches vanilla's splash radius: 4 wide, 2 tall.
+            AABB box = potion.getBoundingBox().inflate(4.0D, 2.0D, 4.0D);
+            for (ServerPlayer hit : level.getEntitiesOfClass(ServerPlayer.class, box)) {
+                cure(hit);
+            }
+        }
+
+        // Paul, 2026-08-13: healing AND regeneration both heal the land, not only the player.
+        boolean heals = hasEffect(potion.getItem(), MobEffects.HEAL)
+                || hasEffect(potion.getItem(), MobEffects.REGENERATION);
+        if (RadConfig.REGEN_CLEANS_LAND.get() && heals) {
+            decontaminate(level, potion, potion.getItem().is(Items.LINGERING_POTION));
+            return;
+        }
+
+        contaminateFromPotion(level, potion);
+    }
+
+    /**
+     * A thrown Radiation potion dirties the ground where it lands. Paul's spec, 2026-08-13.
+     *
+     * Deliberately small and short: one chunk, and few enough rads that it decays back under
+     * min_dose_rads in about a Minecraft day (two for the strong version), and few enough that a
+     * SINGLE healing or regeneration potion cleans it up. A thrown potion is a nuisance, not a
+     * disaster. Reactor blasts are the disaster.
+     */
+    private static void contaminateFromPotion(ServerLevel level, ThrownPotion potion) {
+        if (!RadConfig.CHUNK_RADIATION.get()) return;
+
+        PotionContents contents = potion.getItem().get(DataComponents.POTION_CONTENTS);
+        if (contents == null) return;
+
+        double rads = 0.0D;
+        for (MobEffectInstance effect : contents.getAllEffects()) {
+            if (effect.getEffect() != ModEffects.RADIATION) continue;
+            rads = effect.getAmplifier() >= 1
+                    ? RadConfig.POTION_RADS_STRONG.get()
+                    : RadConfig.POTION_RADS.get();
+        }
+        if (rads <= 0.0D) return;
+
+        ChunkRadiation.get(level).add(new ChunkPos(potion.blockPosition()), (float) rads);
+    }
+
+    /** Shared with RadCuring, which uses it to decide whether a thrown potion infects animals. */
+    public static boolean isRadiationPotion(ItemStack stack) {
+        PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
+        if (contents == null) return false;
+        for (MobEffectInstance effect : contents.getAllEffects()) {
+            if (effect.getEffect() == ModEffects.RADIATION) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Healing and Regeneration heal the land, not just the player. Paul's idea, 2026-08-13.
+     *
+     * This is the cleanup crew's actual tool. Breaking irradiated blocks removes the source, but the
+     * contamination in the chunk map outlives it, and until now there was no way to scrub that. A
+     * thrown Regeneration potion now takes a bite out of the chunk it lands in.
+     *
+     * Cheap for the same reason everything else here is cheap: it edits one float.
+     */
+    private static void decontaminate(ServerLevel level, ThrownPotion potion, boolean lingering) {
+        double amount = RadConfig.REGEN_CLEANUP_RADS.get();
+        if (lingering) amount *= RadConfig.REGEN_LINGERING_MULTIPLIER.get();
+
+        ChunkRadiation rads = ChunkRadiation.get(level);
+        ChunkPos centre = new ChunkPos(potion.blockPosition());
+
+        // The centre chunk takes the full dose of cleanup, the eight around it take a quarter, so a
+        // thrown potion near a chunk border still does something useful on both sides.
+        rads.add(centre, (float) -amount);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                rads.add(new ChunkPos(centre.x + dx, centre.z + dz), (float) (-amount * 0.25D));
+            }
         }
     }
 
-    /** Milk in any container the config lists. Vanilla bucket plus Farmer's Delight's bottle. */
-    private static boolean isMilk(ItemStack stack) {
-        String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-        return RadConfig.MILK_ITEMS.get().contains(id);
+    private static boolean hasEffect(ItemStack stack, Holder<net.minecraft.world.effect.MobEffect> wanted) {
+        PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
+        if (contents == null) return false;
+        for (MobEffectInstance effect : contents.getAllEffects()) {
+            if (effect.getEffect() == wanted) return true;
+        }
+        return false;
     }
 
     private static void cure(ServerPlayer player) {

@@ -7,6 +7,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.PotionContents;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 
 import java.util.ArrayList;
@@ -43,6 +44,12 @@ public final class ModCreativeTabs {
 
     @SubscribeEvent
     public static void onBuildContents(BuildCreativeModeTabContentsEvent event) {
+        // Our drinks belong next to milk, in Food and Drinks.
+        if (event.getTabKey() == CreativeModeTabs.FOOD_AND_DRINKS) {
+            event.accept(ModItems.CHOCOLATE_MILK_BUCKET.get());
+            event.accept(ModItems.CHOCOLATE_MILK_BOTTLE.get());
+        }
+
         List<ItemStack> doomed = new ArrayList<>();
 
         // Two separate lists: what the tab shows, and what the search tab shows. JEI reads the

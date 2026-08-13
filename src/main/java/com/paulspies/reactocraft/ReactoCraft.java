@@ -5,6 +5,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 
 /**
  * ReactoCraft — radiation potions for Paul's Minecraft server.
@@ -23,6 +24,9 @@ public class ReactoCraft {
     public ReactoCraft(IEventBus modBus, ModContainer container) {
         ModEffects.EFFECTS.register(modBus);
         ModPotions.POTIONS.register(modBus);
+        ModItems.ITEMS.register(modBus);
+        ModEntities.ENTITIES.register(modBus);
+        modBus.addListener(ReactoCraft::registerAttributes);
 
         // Creative tab contents are a MOD bus event, not the game bus.
         modBus.register(ModCreativeTabs.class);
@@ -34,5 +38,10 @@ public class ReactoCraft {
         NeoForge.EVENT_BUS.register(ModBrewing.class);
         NeoForge.EVENT_BUS.register(RadEngine.class);
         NeoForge.EVENT_BUS.register(RadCuring.class);
+    }
+
+    /** Without this the cow has no health or speed and the game refuses to spawn it. */
+    private static void registerAttributes(EntityAttributeCreationEvent event) {
+        event.put(ModEntities.IRRADIATED_COW.get(), ModEntities.cowAttributes().build());
     }
 }
