@@ -24,6 +24,9 @@ public class ReactoCraft {
         ModEffects.EFFECTS.register(modBus);
         ModPotions.POTIONS.register(modBus);
 
+        // Creative tab contents are a MOD bus event, not the game bus.
+        modBus.register(ModCreativeTabs.class);
+
         // SERVER type, so the file lands in the server's config folder and never ships to clients.
         container.registerConfig(ModConfig.Type.SERVER, RadConfig.SPEC, "reactocraft-server.toml");
 
