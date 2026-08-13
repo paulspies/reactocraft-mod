@@ -50,6 +50,13 @@ public final class ModCreativeTabs {
             event.accept(ModItems.CHOCOLATE_MILK_BOTTLE.get());
         }
 
+        // ⚠️ MOD SPAWN EGGS ARE NOT ADDED TO THE TAB AUTOMATICALLY. Registering the item is not
+        // enough; without this line the egg exists and works via /give but is invisible in creative,
+        // which is exactly how Paul found it missing on 2026-08-13.
+        if (event.getTabKey() == CreativeModeTabs.SPAWN_EGGS) {
+            event.accept(ModEntities.IRRADIATED_COW_SPAWN_EGG.get());
+        }
+
         List<ItemStack> doomed = new ArrayList<>();
 
         // Two separate lists: what the tab shows, and what the search tab shows. JEI reads the
