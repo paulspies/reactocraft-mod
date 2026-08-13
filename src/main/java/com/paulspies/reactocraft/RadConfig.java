@@ -57,6 +57,10 @@ public final class RadConfig {
     public static final ModConfigSpec.DoubleValue DAMAGE_PER_DOSE;
     public static final ModConfigSpec.IntValue NATURAL_RECOVERY;
     public static final ModConfigSpec.BooleanValue MILK_CLEARS_EXPOSURE;
+    public static final ModConfigSpec.DoubleValue SELF_ADVANCE_RATE;
+    public static final ModConfigSpec.IntValue SYMPTOM_RAMP_CAP;
+    public static final ModConfigSpec.IntValue MILK_FULL_CURE_LIMIT;
+    public static final ModConfigSpec.IntValue MILK_PARTIAL_RELIEF;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -70,18 +74,23 @@ public final class RadConfig {
                 "Exposure is counted in SECONDS of contamination, so every stage number below reads as",
                 "a clock. A source at rate 1.0 fills it in real time.",
                 "",
-                "Strength is rate times duration, which is why potion length and potion tier both matter",
-                "without needing separate tables:",
-                "    Radiation      3:00 at 1.0  = 180  -> stops at Mining Fatigue",
-                "    Radiation ext  8:00 at 1.0  = 480  -> past Wither",
-                "    Radiation II   1:30 at 4.0  = 360  -> reaches Wither, fast and brutal",
-                "    Weak Radiation 1:30 at 1.0  =  90  -> Nausea only, never worse").push("rates");
+                "Strength is rate times duration. Remember self_advance_rate keeps the clock running at",
+                "1.0 after the potion ends, so the totals below are potion time plus the run-on:",
+                "    Radiation      3:00 at 1.0, then 1.0  -> Wither at about 6:00",
+                "    Radiation II   1:30 at 3.0, then 1.0  -> Wither at exactly 3:00, Paul's number",
+                "    Radiation ext  8:00 at 1.0            -> Wither at 6:00, the extra time is wasted",
+                "    Weak Radiation capped, see the cap below, Nausea only").push("rates");
         RATE_RADIATION = b.comment("Radiation, level I")
                 .defineInRange("radiation", 1.0D, 0.0D, 100.0D);
-        RATE_RADIATION_STRONG = b.comment("Radiation II, the glowstone variant")
-                .defineInRange("radiation_strong", 4.0D, 0.0D, 100.0D);
-        RATE_WEAK_RADIATION = b.comment("Weak Radiation, the fermented spider eye branch")
-                .defineInRange("weak_radiation", 1.0D, 0.0D, 100.0D);
+        RATE_RADIATION_STRONG = b.comment(
+                        "Radiation II, the glowstone variant. 3.0 puts Wither at 3:00: 90 seconds of potion",
+                        "at 3x is 270, then the self-advance covers the last 90.")
+                .defineInRange("radiation_strong", 3.0D, 0.0D, 100.0D);
+        RATE_WEAK_RADIATION = b.comment(
+                        "⚠️ NOT a rate. Weak Radiation deliberately never touches the exposure clock, because",
+                        "the clock self-advances and a 'weak' potion that eventually kills you is a bug.",
+                        "It applies dizziness directly for as long as it lasts, and this is its strength.")
+                .defineInRange("weak_radiation_nausea_level", 0.0D, 0.0D, 9.0D);
         REFERENCE_STRENGTH = b.comment(
                         "The zone strength that fills at rate 1.0. At 20, a rad_20 zone runs in real time,",
                         "rad_50 is 2.5x and rad_100 is 5x. Leave it alone unless you want every zone to",
@@ -157,11 +166,40 @@ public final class RadConfig {
         DAMAGE_PER_DOSE = b.comment("Half a heart is 1.0. Stage 5 and up only, and it ramps from there.")
                 .defineInRange("damage_per_dose", 1.0D, 0.0D, 100.0D);
         NATURAL_RECOVERY = b.comment(
-                        "Seconds of exposure shed per interval while clean. 0 means it never fades and milk",
-                        "is the only cure, which is the intended design.")
+                        "Seconds of exposure shed per interval while clean AND self_advance_rate is 0.",
+                        "Ignored while contamination is self-advancing, which is the intended design.")
                 .defineInRange("natural_recovery_seconds", 0, 0, 1000);
+        SELF_ADVANCE_RATE = b.comment(
+                        "🚨 Once you are contaminated at all, it keeps getting worse on its own at this rate,",
+                        "whether or not you are still standing in the source. Paul's spec: five minutes, one",
+                        "symptom a minute, IF YOU DO NOT GET HELP. One sip of a Radiation potion therefore",
+                        "runs the whole ladder unless you treat it.",
+                        "Set to 0.0 to go back to only advancing while a source is present.")
+                .defineInRange("self_advance_rate", 1.0D, 0.0D, 100.0D);
+        SYMPTOM_RAMP_CAP = b.comment(
+                        "Symptoms get stronger the further past their stage you are, up to this many extra",
+                        "levels. Kolten's ask, 2026-08-12.",
+                        "⚠️ Nausea is the exception: vanilla renders the same screen wobble at every level, so",
+                        "its number rises but the picture does not. Slowness, mining fatigue, poison and",
+                        "wither all genuinely intensify.")
+                .defineInRange("symptom_ramp_cap", 3, 0, 9);
+        b.pop();
+
+        b.comment(
+                "Milk is the cure, but not forever. Past the limit the poisoning is too far gone for a",
+                "bucket of milk to undo and it only buys you time. Kolten's ask, 2026-08-12.",
+                "",
+                "⚠️ There is currently NO stronger cure, so past the limit a player has to keep drinking",
+                "milk to stay ahead of it. Raise milk_partial_relief_seconds if that proves unwinnable.")
+                .push("cure");
         MILK_CLEARS_EXPOSURE = b.comment("Milk wipes the accumulated clock, not just the symptoms")
                 .define("milk_clears_exposure", true);
+        MILK_FULL_CURE_LIMIT = b.comment(
+                        "Below this many seconds of exposure, milk cures you completely. Default 300 is the",
+                        "point where real damage starts.")
+                .defineInRange("milk_full_cure_limit_seconds", 300, 0, 100000);
+        MILK_PARTIAL_RELIEF = b.comment("Past the limit, each milk only takes this many seconds off")
+                .defineInRange("milk_partial_relief_seconds", 60, 0, 100000);
         b.pop();
 
         SPEC = b.build();

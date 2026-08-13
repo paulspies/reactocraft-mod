@@ -57,6 +57,15 @@ public final class RadEngine {
         if (player.isSpectator() || player.isCreative()) return;
         if (player.tickCount % RadConfig.DOSE_INTERVAL.get() != 0) return;
 
+        // Weak Radiation is dizziness and nothing else, on purpose. It never enters the exposure
+        // clock, because the clock self-advances once started, so any contribution at all would
+        // eventually kill you and a "weak" potion that kills you is a bug, not a difficulty setting.
+        if (player.hasEffect(ModEffects.WEAK_RADIATION)) {
+            player.addEffect(new MobEffectInstance(MobEffects.CONFUSION,
+                    RadConfig.DOSE_INTERVAL.get() + 40,
+                    (int) Math.round(RadConfig.RATE_WEAK_RADIATION.get()), true, false));
+        }
+
         double rate = incomingRate(player);
         double dose = 0.0D;
 
@@ -86,9 +95,7 @@ public final class RadEngine {
                     ? RadConfig.RATE_RADIATION_STRONG.get()
                     : RadConfig.RATE_RADIATION.get();
         }
-        if (player.hasEffect(ModEffects.WEAK_RADIATION)) {
-            rate = Math.max(rate, RadConfig.RATE_WEAK_RADIATION.get());
-        }
+        // Weak Radiation is handled in onPlayerTick and never reaches the clock. See there for why.
 
         rate = Math.max(rate, zoneRate(player));
         rate = Math.max(rate, inventoryRate(player));
@@ -207,8 +214,14 @@ public final class RadEngine {
         int intervalSeconds = Math.max(1, RadConfig.DOSE_INTERVAL.get() / 20);
         int exposure = data.getInt(EXPOSURE_KEY);
 
-        if (dose > 0.0D) {
-            exposure += Math.max(1, (int) Math.round(intervalSeconds * dose));
+        // 🚨 Once contaminated, it keeps getting worse on its own. A Radiation potion only lasts
+        // three minutes but the ladder runs five, so without this a single dose could never reach
+        // the damage stage no matter how long you waited. Paul caught that in play on 2026-08-12.
+        double advance = dose;
+        if (exposure > 0) advance = Math.max(advance, RadConfig.SELF_ADVANCE_RATE.get());
+
+        if (advance > 0.0D) {
+            exposure += Math.max(1, (int) Math.round(intervalSeconds * advance));
         } else {
             exposure -= RadConfig.NATURAL_RECOVERY.get();
         }
@@ -236,11 +249,11 @@ public final class RadEngine {
         // Long enough to outlast the gap between doses so the icons hold steady.
         int ticks = RadConfig.DOSE_INTERVAL.get() + 40;
 
-        if (stage >= 1) player.addEffect(new MobEffectInstance(MobEffects.CONFUSION, ticks, 0, true, false));
-        if (stage >= 2) player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, 0, true, false));
-        if (stage >= 3) player.addEffect(new MobEffectInstance(MobEffects.DIG_SLOWDOWN, ticks, 0, true, false));
-        if (stage >= 4) player.addEffect(new MobEffectInstance(MobEffects.POISON, ticks, 0, true, false));
-        if (stage >= 6) player.addEffect(new MobEffectInstance(MobEffects.WITHER, ticks, 0, true, false));
+        if (stage >= 1) player.addEffect(new MobEffectInstance(MobEffects.CONFUSION, ticks, ramp(stage, 1), true, false));
+        if (stage >= 2) player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, ramp(stage, 2), true, false));
+        if (stage >= 3) player.addEffect(new MobEffectInstance(MobEffects.DIG_SLOWDOWN, ticks, ramp(stage, 3), true, false));
+        if (stage >= 4) player.addEffect(new MobEffectInstance(MobEffects.POISON, ticks, ramp(stage, 4), true, false));
+        if (stage >= 6) player.addEffect(new MobEffectInstance(MobEffects.WITHER, ticks, ramp(stage, 6), true, false));
 
         if (stage >= 5) {
             // Ramps past the threshold, so standing in it gets worse rather than sitting at a trickle.
@@ -248,6 +261,16 @@ public final class RadEngine {
             double ramp = (double) (exposure - at) / Math.max(1, at);
             hurt(player, (float) (RadConfig.DAMAGE_PER_DOSE.get() * (1.0D + ramp * 3.0D)));
         }
+    }
+
+    /**
+     * A symptom gets stronger the further past its own stage you are, capped by config.
+     *
+     * ⚠️ Nausea is the exception. Vanilla draws the same screen wobble at every amplifier, so its
+     * level rises in the HUD but the picture does not change. Everything else genuinely intensifies.
+     */
+    private static int ramp(int stage, int stageIntroduced) {
+        return Math.min(RadConfig.SYMPTOM_RAMP_CAP.get(), stage - stageIntroduced);
     }
 
     /** 0 means no symptoms yet. 1 through 6 are the stages, and also the Contamination level. */
@@ -261,14 +284,38 @@ public final class RadEngine {
         return 0;
     }
 
-    /** Milk is the cure. It wipes the accumulated clock, not just the symptoms. */
+    /**
+     * Milk is the cure, but only up to a point.
+     *
+     * Below the limit it wipes the clock completely. Past it the poisoning is too far gone to undo
+     * with a bucket of milk, and each one only buys back a fixed number of seconds. Kolten's ask,
+     * 2026-08-12: after long enough, milk should stop saving you.
+     */
     @SubscribeEvent
     public static void onUseItemFinish(LivingEntityUseItemEvent.Finish event) {
         if (!RadConfig.MILK_CLEARS_EXPOSURE.get()) return;
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         if (!event.getItem().is(Items.MILK_BUCKET)) return;
-        player.getPersistentData().putInt(EXPOSURE_KEY, 0);
-        // Vanilla milk already strips the effects themselves, including Contamination.
+
+        CompoundTag data = player.getPersistentData();
+        int exposure = data.getInt(EXPOSURE_KEY);
+
+        if (exposure <= RadConfig.MILK_FULL_CURE_LIMIT.get()) {
+            data.putInt(EXPOSURE_KEY, 0);
+            // Vanilla milk already strips the effects themselves, including Contamination.
+            return;
+        }
+
+        int left = Math.max(0, exposure - RadConfig.MILK_PARTIAL_RELIEF.get());
+        data.putInt(EXPOSURE_KEY, left);
+
+        // Vanilla milk stripped Contamination on the way in, so put it back at the level that is
+        // still deserved. Otherwise the HUD would claim you were clean while the clock kept running.
+        int stage = stageFor(left);
+        if (stage > 0) {
+            player.addEffect(new MobEffectInstance(
+                    ModEffects.CONTAMINATION, MobEffectInstance.INFINITE_DURATION, stage - 1, true, true));
+        }
     }
 
     private static void hurt(ServerPlayer player, float amount) {
