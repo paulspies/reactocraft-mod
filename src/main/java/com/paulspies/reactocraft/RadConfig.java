@@ -61,6 +61,7 @@ public final class RadConfig {
     public static final ModConfigSpec.IntValue SYMPTOM_RAMP_CAP;
     public static final ModConfigSpec.IntValue MILK_FULL_CURE_LIMIT;
     public static final ModConfigSpec.IntValue MILK_PARTIAL_RELIEF;
+    public static final ModConfigSpec.BooleanValue HEALING_POTION_CURES;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -195,11 +196,19 @@ public final class RadConfig {
         MILK_CLEARS_EXPOSURE = b.comment("Milk wipes the accumulated clock, not just the symptoms")
                 .define("milk_clears_exposure", true);
         MILK_FULL_CURE_LIMIT = b.comment(
-                        "Below this many seconds of exposure, milk cures you completely. Default 300 is the",
-                        "point where real damage starts.")
-                .defineInRange("milk_full_cure_limit_seconds", 300, 0, 100000);
+                        "Below this many seconds of exposure, milk cures you completely. Paul's number is 180:",
+                        "milk works right up to poison, and once poison starts there is no going back on milk",
+                        "alone.")
+                .defineInRange("milk_full_cure_limit_seconds", 180, 0, 100000);
         MILK_PARTIAL_RELIEF = b.comment("Past the limit, each milk only takes this many seconds off")
                 .defineInRange("milk_partial_relief_seconds", 60, 0, 100000);
+        HEALING_POTION_CURES = b.comment(
+                        "A Potion of Healing, any level, wipes contamination completely at any stage. This is",
+                        "the answer to being past the milk limit. Paul's rule, 2026-08-12.",
+                        "",
+                        "⚠️ Drinkable potions only. A splash or lingering healing potion applies its effect by a",
+                        "different path that this hook does not see, so it heals hearts without curing.")
+                .define("healing_potion_cures", true);
         b.pop();
 
         SPEC = b.build();

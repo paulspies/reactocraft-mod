@@ -3,6 +3,8 @@ package com.paulspies.reactocraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -293,8 +295,17 @@ public final class RadEngine {
      */
     @SubscribeEvent
     public static void onUseItemFinish(LivingEntityUseItemEvent.Finish event) {
-        if (!RadConfig.MILK_CLEARS_EXPOSURE.get()) return;
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
+
+        // A Potion of Healing, any level, wipes it completely at any stage. This is the way back
+        // once you are past the milk limit. Paul's rule, 2026-08-12.
+        if (RadConfig.HEALING_POTION_CURES.get() && isHealingPotion(event.getItem())) {
+            player.getPersistentData().putInt(EXPOSURE_KEY, 0);
+            player.removeEffect(ModEffects.CONTAMINATION);
+            return;
+        }
+
+        if (!RadConfig.MILK_CLEARS_EXPOSURE.get()) return;
         if (!event.getItem().is(Items.MILK_BUCKET)) return;
 
         CompoundTag data = player.getPersistentData();
@@ -316,6 +327,22 @@ public final class RadEngine {
             player.addEffect(new MobEffectInstance(
                     ModEffects.CONTAMINATION, MobEffectInstance.INFINITE_DURATION, stage - 1, true, true));
         }
+    }
+
+    /**
+     * True for a drinkable potion carrying Instant Health at any level.
+     *
+     * Checked by effect rather than by potion id so that Healing, Healing II and any modded or
+     * custom bottle that grants instant health all count, which is what "any kind" means.
+     */
+    private static boolean isHealingPotion(ItemStack stack) {
+        if (!stack.is(Items.POTION)) return false;
+        PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
+        if (contents == null) return false;
+        for (MobEffectInstance effect : contents.getAllEffects()) {
+            if (effect.getEffect() == MobEffects.HEAL) return true;
+        }
+        return false;
     }
 
     private static void hurt(ServerPlayer player, float amount) {
