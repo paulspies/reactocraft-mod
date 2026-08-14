@@ -1,0 +1,1109 @@
+<title>Entity Skin Editor — Create: Power Plant Technology</title>
+<style>
+  /* ---- tokens: light is the base, dark redefines only the values -------------------------- */
+  :root {
+    --ground:      #EDEFEA;
+    --surface:     #FFFFFF;
+    --raised:      #F5F7F2;
+    --line:        #D3D9CE;
+    --line-strong: #B4BEAC;
+    --ink:         #161C16;
+    --muted:       #5F6B5E;
+    --accent:      #2B302B;
+    --accent-ink:  #F2F4F0;
+    --warn:        #6E6E6E;
+    --danger:      #A32323;
+    --checker-a:   #FFFFFF;
+    --checker-b:   #D6D6D6;
+    --region:      rgba(40,44,40,.45);
+    --region-hot:  #1E63C8;
+    --shadow:      0 1px 2px rgba(20,28,20,.10), 0 8px 24px rgba(20,28,20,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0E1210;
+      --surface:     #171C19;
+      --raised:      #1F2621;
+      --line:        #2C352E;
+      --line-strong: #435041;
+      --ink:         #DCE4DB;
+      --muted:       #8B9790;
+      --accent:      #C9CFC7;
+      --accent-ink:  #141815;
+      --warn:        #9AA39A;
+      --danger:      #E5675A;
+      --checker-a:   #FFFFFF;
+      --checker-b:   #D6D6D6;
+      --region:      rgba(150,158,150,.45);
+      --region-hot:  #62A8FF;
+      --shadow:      0 1px 2px rgba(0,0,0,.5), 0 12px 32px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #0E1210;
+    --surface:     #171C19;
+    --raised:      #1F2621;
+    --line:        #2C352E;
+    --line-strong: #435041;
+    --ink:         #DCE4DB;
+    --muted:       #8B9790;
+    --accent:      #C9CFC7;
+    --accent-ink:  #141815;
+    --warn:        #9AA39A;
+    --danger:      #E5675A;
+    --checker-a:   #FFFFFF;
+    --checker-b:   #D6D6D6;
+    --region:      rgba(150,158,150,.45);
+    --region-hot:  #62A8FF;
+    --shadow:      0 1px 2px rgba(0,0,0,.5), 0 12px 32px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 13px/1.5 ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", Menlo, monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 { font-weight: 600; margin: 0; text-wrap: balance; }
+
+  .masthead {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .masthead h1 { font-size: 14px; letter-spacing: .16em; text-transform: uppercase; }
+  .masthead .sub { color: var(--muted); font-size: 12px; }
+  .masthead .spacer { flex: 1; }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 0;
+    align-items: start;
+    min-height: calc(100vh - 52px);
+  }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+
+  .rail {
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    padding: 14px;
+    display: flex; flex-direction: column; gap: 18px;
+    position: sticky; top: 0;
+  }
+  @media (max-width: 860px) { .rail { position: static; } }
+
+  .group { display: flex; flex-direction: column; gap: 8px; }
+  .group > .label {
+    font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  button {
+    font: inherit; color: var(--ink);
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 7px 8px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--line-strong); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[aria-pressed="true"] {
+    background: var(--accent); color: var(--accent-ink);
+    border-color: var(--accent); font-weight: 600;
+  }
+  button svg {
+    width: 16px; height: 16px; display: block; margin: 0 auto;
+    fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  button.half { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  button.half svg { width: 14px; height: 14px; margin: 0; }
+  .tiny { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+
+  button.wide { grid-column: span 4; }
+  button.half { grid-column: span 2; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+  .swatch {
+    aspect-ratio: 1; border-radius: 2px; cursor: pointer;
+    border: 1px solid var(--line);
+    padding: 0;
+  }
+  .swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row label { color: var(--muted); font-size: 12px; }
+  input[type="color"] {
+    width: 100%; height: 30px; padding: 0; border: 1px solid var(--line);
+    border-radius: 3px; background: var(--raised); cursor: pointer;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  .regions {
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 232px; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 3px;
+    background: var(--ground);
+    padding: 4px;
+  }
+  .regions button {
+    text-align: left; background: transparent; border: 0; border-radius: 2px;
+    padding: 4px 6px; font-size: 11px; display: flex; justify-content: space-between; gap: 8px;
+  }
+  .regions button:hover { background: var(--raised); }
+  .regions button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .regions .co { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .regions button[aria-pressed="true"] .co { color: var(--accent-ink); opacity: .8; }
+
+  .stage {
+    padding: 18px;
+    display: flex; flex-direction: column; gap: 14px;
+    min-width: 0;
+  }
+  /* The name of the region you last clicked, shown ABOVE the canvas so it never covers the art.
+     Labels used to be drawn inside each box and sat right on top of the pixels being painted. */
+  .pinned {
+    display: flex; align-items: center; gap: 10px;
+    align-self: start;
+    padding: 6px 10px 6px 8px;
+    border: 1px solid var(--region-hot);
+    border-radius: 3px;
+    background: var(--surface);
+    font-size: 12px;
+  }
+  .pinned .dot {
+    width: 8px; height: 8px; border-radius: 2px;
+    background: var(--region-hot);
+  }
+  .pinned .co { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pinned button { padding: 2px 8px; font-size: 11px; }
+
+  .canvas-wrap {
+    position: relative;
+    align-self: start;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    background: var(--surface);
+    overflow: auto;
+    max-width: 100%;
+  }
+  canvas { display: block; image-rendering: pixelated; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+
+  .readout {
+    display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--surface);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout b { font-weight: 600; }
+  .readout .muted { color: var(--muted); }
+  .pill {
+    padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    border: 1px solid var(--line-strong); color: var(--muted);
+  }
+  .pill.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .pill.bad { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 600; }
+
+  .note {
+    border-left: 2px solid var(--warn);
+    padding: 8px 12px; background: var(--surface);
+    color: var(--muted); font-size: 12px; max-width: 66ch;
+  }
+  .note b { color: var(--ink); }
+
+  /* The reference is its OWN grid below the working one, not an overlay. Two separate cows on the
+     page: yours on top, theirs underneath, colours travel upward. */
+  .sheet {
+    display: flex; flex-direction: column; gap: 8px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line-strong);
+  }
+  .sheet h2 {
+    font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
+  }
+  .sheet .hint { margin: 0; color: var(--muted); font-size: 12px; max-width: 62ch; }
+  #refCanvas { cursor: crosshair; }
+
+  /* The box has to BE the control. Paul went looking for somewhere to put the image and found a
+     panel that did nothing, because loading was buried in a sidebar button. */
+  .dropzone {
+    display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center;
+    min-height: 104px; padding: 20px;
+    border: 2px dashed var(--line-strong);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    text-align: center;
+  }
+  .dropzone b { color: var(--ink); font-size: 13px; }
+  .dropzone span { font-size: 12px; }
+  .dropzone:hover, .dropzone:focus-visible {
+    border-color: var(--region-hot);
+    outline: none;
+  }
+  .dropzone.over {
+    border-color: var(--region-hot);
+    border-style: solid;
+    background: var(--raised);
+  }
+
+  .output {
+    display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+    padding: 14px;
+    border: 1px solid var(--region-hot); border-radius: 4px;
+    background: var(--surface);
+  }
+  .output h2 { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+  .output img {
+    image-rendering: pixelated;
+    border: 1px solid var(--line-strong);
+    background: repeating-conic-gradient(#FFF 0% 25%, #D6D6D6 0% 50%) 50% / 16px 16px;
+  }
+  .output-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .output .hint { margin: 0; color: var(--muted); font-size: 12px; max-width: 60ch; }
+  .output .hint b { color: var(--ink); }
+  .btnlike {
+    font: inherit; text-decoration: none;
+    color: var(--accent-ink); background: var(--accent);
+    border: 1px solid var(--accent); border-radius: 3px;
+    padding: 7px 12px; font-weight: 600;
+  }
+
+  .io { display: flex; gap: 8px; flex-wrap: wrap; }
+  .io input[type="file"], .rail input[type="file"] { display: none; }
+
+  a { color: var(--accent); }
+</style>
+
+<div class="masthead">
+  <h1>Entity Skin Editor</h1>
+  <span class="sub">cow &middot; 64 &times; 32</span>
+  <span class="spacer"></span>
+  <span class="sub" id="dirty"></span>
+</div>
+
+<div class="shell">
+  <aside class="rail">
+    <div class="group">
+      <span class="label">Tool</span>
+      <div class="tools">
+        <button id="t-pencil" aria-pressed="true" title="Pencil (B)" aria-label="Pencil">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14.5 6.5l3 3"/></svg>
+        </button>
+        <button id="t-eraser" aria-pressed="false" title="Eraser (E)" aria-label="Eraser">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 20H5l-2-2a2 2 0 0 1 0-2.8l9-9a2 2 0 0 1 2.8 0l4 4a2 2 0 0 1 0 2.8L12 20H8z"/><path d="M9 13l5 5"/></svg>
+        </button>
+        <button id="t-fill" aria-pressed="false" title="Fill (G)" aria-label="Paint can">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3l8 8-7.5 7.5a2 2 0 0 1-2.8 0L3 12l8-9z"/><path d="M3.5 11.5h15.5"/><path d="M20.5 15c1.2 1.8 1.8 3 1.8 3.7a1.8 1.8 0 1 1-3.6 0c0-.7.6-1.9 1.8-3.7z"/></svg>
+        </button>
+        <button id="t-pick" aria-pressed="false" title="Eyedropper (I)" aria-label="Eyedropper">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 3.5a2.5 2.5 0 0 1 3.5 3.5l-1.5 1.5 2 2-2 2-2-2-7 7-3.5 1 1-3.5 7-7-2-2 2-2 2 2 1.5-1.5z"/></svg>
+        </button>
+        <button id="undo" class="half" title="Undo (Ctrl+Z)" aria-label="Undo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10h-6"/><path d="M8 5L4 9l4 4"/></svg>
+          <span>Undo</span>
+        </button>
+        <button id="redo" class="half" title="Redo (Ctrl+Y)" aria-label="Redo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9H9a5 5 0 0 0 0 10h6"/><path d="M16 5l4 4-4 4"/></svg>
+          <span>Redo</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="group">
+      <span class="label">Colour</span>
+      <input type="color" id="colour" value="#6B3E1F">
+      <button id="screenPick">Pick colour from screen</button>
+      <div class="swatches" id="swatches"></div>
+    </div>
+
+    <div class="group">
+      <span class="label">Your texture &mdash; the top grid</span>
+      <button id="import">Upload a template…</button>
+      <p class="tiny">
+        This replaces the cow you are painting. The reference at the bottom of the page is separate
+        and never changes this one.
+      </p>
+    </div>
+
+    <div class="group">
+      <span class="label">View</span>
+      <div class="row"><input type="checkbox" id="showRegions" checked><label for="showRegions">Region outlines</label></div>
+      <div class="row"><input type="checkbox" id="showGrid"><label for="showGrid">Pixel grid</label></div>
+      <div class="row"><input type="checkbox" id="clamp" checked><label for="clamp">Lock to regions</label></div>
+      <div class="row"><label for="zoom">Zoom</label></div>
+      <input type="range" id="zoom" min="6" max="28" value="14">
+    </div>
+
+    <div class="group">
+      <span class="label">Regions</span>
+      <div class="regions" id="regionList"></div>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="pinned" id="pinned" hidden>
+      <span class="dot"></span>
+      <b id="pinnedName"></b>
+      <span class="co" id="pinnedCoords"></span>
+      <button id="unpin" title="Clear selection">clear</button>
+    </div>
+
+    <div class="canvas-wrap" id="wrap">
+      <canvas id="paint"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="readout">
+      <span><span class="muted">cursor</span> <b id="rCursor">—</b></span>
+      <span><span class="muted">region</span> <b id="rRegion">—</b></span>
+      <span><span class="muted">colour</span> <b id="rColour">—</b></span>
+      <span class="pill" id="rClamp">locked to regions</span>
+      <span class="pill" id="saveState">checking autosave…</span>
+    </div>
+
+    <section class="sheet">
+      <h2>Reference &mdash; the bottom grid</h2>
+      <input type="file" id="refFile" accept="image/*">
+
+      <div class="dropzone" id="dropzone" tabindex="0" role="button"
+           aria-label="Add a reference image">
+        <b>Drop a cow texture here</b>
+        <span>or click to choose a file. Any size, it gets sampled to 64 &times; 32.</span>
+      </div>
+
+      <div class="canvas-wrap" id="refWrap" hidden>
+        <canvas id="refCanvas"></canvas>
+      </div>
+      <p class="hint" id="refHint" hidden>
+        Click any pixel here to take its colour. Read only, so nothing you do can change it.
+        The pencil is selected automatically, ready to paint that colour into the right region above.
+      </p>
+      <button id="refClear" disabled>Remove reference</button>
+    </section>
+
+    <div class="io">
+      <input type="file" id="file" accept="image/png">
+      <button id="export">Export 64 × 32 PNG</button>
+      <button id="clear">Clear</button>
+      <button id="theme">Theme</button>
+    </div>
+
+    <section class="output" id="output" hidden>
+      <h2>Your texture</h2>
+      <img id="outImg" alt="the exported 64 by 32 texture" width="256" height="128">
+      <div class="output-actions">
+        <a id="outLink" class="btnlike" download="irradiated_cow.png">Download</a>
+        <button id="outCopy">Copy to clipboard</button>
+        <button id="outClose">Close</button>
+      </div>
+      <p class="hint">
+        <b>If Download does nothing, right-click the image and choose Save image as.</b>
+        That always works, because the picture is really there on the page.
+        It is exactly 64 &times; 32 even though it is shown at four times the size.
+      </p>
+      <p class="hint" id="outNote"></p>
+    </section>
+
+    <p class="note">
+      <b>Lock to regions</b> is the point of this tool. With it on you cannot paint a pixel the cow
+      model never reads, and you cannot leave a hole inside one it does. Every failed attempt at this
+      texture came from art that looked right flat and landed wrong on the animal.
+      <br><br>
+      Export always writes exactly 64 × 32 with real transparency. Drop the file anywhere and tell
+      Claude the path.
+    </p>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const W = 64, H = 32;
+
+  /* Regions come from CowModel's own box offsets, measured, not guessed.
+     Standard box UV: top and bottom sit on the first row; right, front, left, back on the second. */
+  const REGIONS = [
+    { n: "head top",    x1: 6,  y1: 0,  x2: 13, y2: 5  },
+    { n: "head under",  x1: 14, y1: 0,  x2: 21, y2: 5  },
+    { n: "horns",       x1: 22, y1: 0,  x2: 25, y2: 3  },
+    { n: "cheek right", x1: 0,  y1: 6,  x2: 5,  y2: 13 },
+    { n: "FACE",        x1: 6,  y1: 6,  x2: 13, y2: 13 },
+    { n: "cheek left",  x1: 14, y1: 6,  x2: 19, y2: 13 },
+    { n: "head back",   x1: 20, y1: 6,  x2: 27, y2: 13 },
+    { n: "udder",       x1: 52, y1: 0,  x2: 61, y2: 6  },
+    { n: "body top",    x1: 28, y1: 4,  x2: 39, y2: 13 },
+    { n: "body under",  x1: 40, y1: 4,  x2: 51, y2: 13 },
+    { n: "flank right", x1: 18, y1: 14, x2: 27, y2: 31 },
+    { n: "body front",  x1: 28, y1: 14, x2: 39, y2: 31 },
+    { n: "flank left",  x1: 40, y1: 14, x2: 49, y2: 31 },
+    { n: "body back",   x1: 50, y1: 14, x2: 61, y2: 31 },
+    { n: "leg caps",    x1: 4,  y1: 16, x2: 11, y2: 19 },
+    { n: "legs ×4",     x1: 0,  y1: 20, x2: 15, y2: 31 }
+  ];
+
+  const PALETTE = [
+    "#6B3E1F", "#8B5A2B", "#4A2A14", "#666334", "#8C7C4A", "#4A4628",
+    "#8FE528", "#5F961E", "#C8F26A", "#682424", "#A33A3A", "#EE9E9E",
+    "#3C382C", "#9A9A9A", "#C6C6C6", "#181814"
+  ];
+
+  const paint = document.getElementById("paint");
+  const overlay = document.getElementById("overlay");
+  const pctx = paint.getContext("2d");
+  const octx = overlay.getContext("2d");
+
+  /* The authoritative pixel store. The visible canvas is only ever a scaled blit of this. */
+  const buf = document.createElement("canvas");
+  buf.width = W; buf.height = H;
+  const bctx = buf.getContext("2d", { willReadFrequently: true });
+
+  let zoom = 14;
+  let tool = "pencil";
+  let colour = "#8FE528";
+  let painting = false;
+  let activeRegion = -1;
+  const undoStack = [];
+  const redoStack = [];
+
+  /* A reference image sits under (or over) the art at low opacity so you can trace a design into
+     the correct regions instead of trying to convert one that was drawn in the wrong ones. */
+  let reference = null;
+
+  /* A 64x32 copy of the reference at FULL opacity. The eyedropper reads this, never the screen.
+     Sampling what is displayed would give you the reference blended with the checkerboard at
+     whatever the opacity slider happens to be, which is a colour that exists nowhere. */
+  const refBuf = document.createElement("canvas");
+  refBuf.width = W; refBuf.height = H;
+  const rctx = refBuf.getContext("2d", { willReadFrequently: true });
+
+  /* Legality mask: 1 where some region covers the pixel. */
+  const legal = new Uint8Array(W * H);
+  REGIONS.forEach(function (r) {
+    for (let y = r.y1; y <= r.y2; y++) {
+      for (let x = r.x1; x <= r.x2; x++) legal[y * W + x] = 1;
+    }
+  });
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  /* ---- autosave -----------------------------------------------------------------------------
+     🚨 THIS EXISTS BECAUSE THE PAGE HAD NO MEMORY. Every republish, every accidental refresh, every
+     closed tab threw away whatever was on the canvas. 64x32 is two kilobytes as a data URL, so
+     there is no reason not to keep it. */
+  const SAVE_KEY = "reactocraft.skin.cow";
+  let saveTimer = null;
+  let saveWorks = null;   /* null until probed */
+
+  /* ⚠️ Probe it rather than assume. A sandboxed frame can throw on localStorage, and the first
+     version of this swallowed that in a catch, so the page would have claimed to be saving while
+     quietly doing nothing. If it does not work the user needs to be told, not reassured. */
+  function probeStorage() {
+    try {
+      localStorage.setItem(SAVE_KEY + ".probe", "1");
+      localStorage.removeItem(SAVE_KEY + ".probe");
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function saveSoon() {
+    if (saveWorks === false) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      try {
+        localStorage.setItem(SAVE_KEY, buf.toDataURL("image/png"));
+        setSaveState(true);
+      } catch (err) {
+        setSaveState(false);
+      }
+    }, 400);
+  }
+
+  function setSaveState(ok) {
+    saveWorks = ok;
+    const el = document.getElementById("saveState");
+    if (!el) return;
+    el.textContent = ok ? "autosaved" : "AUTOSAVE BLOCKED — export before you refresh";
+    el.className = "pill" + (ok ? "" : " bad");
+  }
+
+  function restoreSaved(done) {
+    let saved = null;
+    try { saved = localStorage.getItem(SAVE_KEY); } catch (err) { saved = null; }
+    if (!saved) { done(false); return; }
+    const img = new Image();
+    img.onload = function () {
+      bctx.clearRect(0, 0, W, H);
+      bctx.imageSmoothingEnabled = false;
+      bctx.drawImage(img, 0, 0);
+      done(true);
+    };
+    img.onerror = function () { done(false); };
+    img.src = saved;
+  }
+
+  function resize() {
+    paint.width = W * zoom; paint.height = H * zoom;
+    overlay.width = W * zoom; overlay.height = H * zoom;
+    paint.style.width = overlay.style.width = (W * zoom) + "px";
+    paint.style.height = overlay.style.height = (H * zoom) + "px";
+    render();
+  }
+
+  function render() {
+    /* transparency checkerboard, sized to the pixel grid so it reads as "nothing here" */
+    const a = cssVar("--checker-a"), b = cssVar("--checker-b");
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        pctx.fillStyle = ((x + y) & 1) ? b : a;
+        pctx.fillRect(x * zoom, y * zoom, zoom, zoom);
+      }
+    }
+    pctx.imageSmoothingEnabled = false;
+    pctx.drawImage(buf, 0, 0, W * zoom, H * zoom);
+    drawOverlay();
+    renderReference();
+    saveSoon();
+  }
+
+  /* The second grid. Same zoom as the working one so the two read as the same object. */
+  function renderReference() {
+    if (!reference) return;
+    const c = document.getElementById("refCanvas");
+    const ctx = c.getContext("2d");
+    c.width = W * zoom; c.height = H * zoom;
+    c.style.width = (W * zoom) + "px";
+    c.style.height = (H * zoom) + "px";
+
+    const a = cssVar("--checker-a"), b = cssVar("--checker-b");
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        ctx.fillStyle = ((x + y) & 1) ? b : a;
+        ctx.fillRect(x * zoom, y * zoom, zoom, zoom);
+      }
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(refBuf, 0, 0, W * zoom, H * zoom);
+
+    /* The reference gets the SAME region outlines as the working grid. That is what makes it a cow
+       template rather than a flat picture: you can see at a glance that their head is sitting
+       outside the head rectangle, which is the whole reason this tool exists. */
+    if (!document.getElementById("showRegions").checked) return;
+    REGIONS.forEach(function (r, i) {
+      const x = r.x1 * zoom, y = r.y1 * zoom;
+      const w = (r.x2 - r.x1 + 1) * zoom, h = (r.y2 - r.y1 + 1) * zoom;
+      if (i === activeRegion) {
+        ctx.strokeStyle = cssVar("--region-hot");
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+      } else {
+        ctx.strokeStyle = cssVar("--region");
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+      }
+    });
+  }
+
+  function drawOverlay() {
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+
+    if (document.getElementById("showGrid").checked) {
+      octx.strokeStyle = "rgba(128,128,128,.28)";
+      octx.lineWidth = 1;
+      for (let x = 1; x < W; x++) {
+        octx.beginPath(); octx.moveTo(x * zoom + .5, 0); octx.lineTo(x * zoom + .5, H * zoom); octx.stroke();
+      }
+      for (let y = 1; y < H; y++) {
+        octx.beginPath(); octx.moveTo(0, y * zoom + .5); octx.lineTo(W * zoom, y * zoom + .5); octx.stroke();
+      }
+    }
+
+    if (!document.getElementById("showRegions").checked) return;
+
+    REGIONS.forEach(function (r, i) {
+      const x = r.x1 * zoom, y = r.y1 * zoom;
+      const w = (r.x2 - r.x1 + 1) * zoom, h = (r.y2 - r.y1 + 1) * zoom;
+      /* ⚠️ NEVER tint the inside of a region. An earlier version washed the active one in
+         translucent accent, which shifted every colour under it green and made it impossible to
+         judge the actual art. The highlight has to live entirely in the outline. */
+      const hot = i === activeRegion;
+      if (hot) {
+        /* Blue, so it can never be confused with anything in the art, and outline only. */
+        octx.strokeStyle = cssVar("--region-hot");
+        octx.lineWidth = 3;
+        octx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+        octx.strokeStyle = cssVar("--ground");
+        octx.lineWidth = 1;
+        octx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+      } else {
+        octx.strokeStyle = cssVar("--region");
+        octx.lineWidth = 1;
+        octx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+      }
+      /* No text is ever drawn on the canvas. The name lives above it, in the pinned bar. */
+    });
+  }
+
+  function pixelAt(evt) {
+    const rect = paint.getBoundingClientRect();
+    const x = Math.floor((evt.clientX - rect.left) / zoom);
+    const y = Math.floor((evt.clientY - rect.top) / zoom);
+    if (x < 0 || y < 0 || x >= W || y >= H) return null;
+    return { x: x, y: y };
+  }
+
+  function regionAt(x, y) {
+    for (let i = 0; i < REGIONS.length; i++) {
+      const r = REGIONS[i];
+      if (x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2) return i;
+    }
+    return -1;
+  }
+
+  function pushUndo() {
+    undoStack.push(bctx.getImageData(0, 0, W, H));
+    if (undoStack.length > 80) undoStack.shift();
+    redoStack.length = 0;   /* a new edit invalidates anything that was undone */
+    syncHistory();
+    document.getElementById("dirty").textContent = "unsaved changes";
+  }
+
+  function syncHistory() {
+    document.getElementById("undo").disabled = undoStack.length === 0;
+    document.getElementById("redo").disabled = redoStack.length === 0;
+  }
+
+  function put(x, y, css) {
+    if (document.getElementById("clamp").checked && !legal[y * W + x]) return;
+    if (css === null) { bctx.clearRect(x, y, 1, 1); return; }
+    bctx.fillStyle = css;
+    bctx.clearRect(x, y, 1, 1);
+    bctx.fillRect(x, y, 1, 1);
+  }
+
+  function readPixel(x, y) {
+    const d = bctx.getImageData(x, y, 1, 1).data;
+    return { r: d[0], g: d[1], b: d[2], a: d[3] };
+  }
+
+  function toHex(p) {
+    const h = function (v) { return v.toString(16).padStart(2, "0"); };
+    return "#" + h(p.r) + h(p.g) + h(p.b);
+  }
+
+  function flood(sx, sy, css) {
+    const target = readPixel(sx, sy);
+    const img = bctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    const same = function (i) {
+      return d[i] === target.r && d[i + 1] === target.g && d[i + 2] === target.b && d[i + 3] === target.a;
+    };
+    const tmp = document.createElement("canvas");
+    tmp.width = 1; tmp.height = 1;
+    const tctx = tmp.getContext("2d");
+    tctx.fillStyle = css;
+    tctx.fillRect(0, 0, 1, 1);
+    const nc = tctx.getImageData(0, 0, 1, 1).data;
+    if (nc[0] === target.r && nc[1] === target.g && nc[2] === target.b && nc[3] === target.a) return;
+
+    const clamped = document.getElementById("clamp").checked;
+    const stack = [[sx, sy]];
+    while (stack.length) {
+      const pt = stack.pop();
+      const x = pt[0], y = pt[1];
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if (clamped && !legal[y * W + x]) continue;
+      const i = (y * W + x) * 4;
+      if (!same(i)) continue;
+      d[i] = nc[0]; d[i + 1] = nc[1]; d[i + 2] = nc[2]; d[i + 3] = nc[3];
+      stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+    bctx.putImageData(img, 0, 0);
+  }
+
+  function apply(p) {
+    if (tool === "pencil") put(p.x, p.y, colour);
+    else if (tool === "eraser") put(p.x, p.y, null);
+    else if (tool === "fill") flood(p.x, p.y, tool === "eraser" ? "rgba(0,0,0,0)" : colour);
+    else if (tool === "pick") {
+      const c = readPixel(p.x, p.y);
+      if (c.a > 0) {
+        colour = toHex(c);
+        document.getElementById("colour").value = colour;
+        syncSwatches();
+        setTool("pencil");
+      }
+    }
+    render();
+  }
+
+  /* ---- events -------------------------------------------------------------------------- */
+
+  /* Clicking pins a region. Hovering does NOT, so the highlight stops flickering as you move and
+     the name above the canvas stays on whatever you are actually working in. */
+  function pin(i) {
+    activeRegion = i;
+    const bar = document.getElementById("pinned");
+    if (i === -1) {
+      bar.hidden = true;
+    } else {
+      bar.hidden = false;
+      document.getElementById("pinnedName").textContent = REGIONS[i].n;
+      document.getElementById("pinnedCoords").textContent =
+        "x" + REGIONS[i].x1 + "-" + REGIONS[i].x2 + "  y" + REGIONS[i].y1 + "-" + REGIONS[i].y2;
+    }
+    syncRegionList();
+    drawOverlay();
+    renderReference();
+  }
+
+  paint.addEventListener("pointerdown", function (e) {
+    const p = pixelAt(e); if (!p) return;
+    pin(regionAt(p.x, p.y));
+    pushUndo();
+    painting = true;
+    paint.setPointerCapture(e.pointerId);
+    apply(p);
+  });
+
+  paint.addEventListener("pointermove", function (e) {
+    const p = pixelAt(e);
+    if (p) {
+      document.getElementById("rCursor").textContent = p.x + ", " + p.y;
+      const ri = regionAt(p.x, p.y);
+      document.getElementById("rRegion").textContent = ri === -1 ? "outside — not drawn" : REGIONS[ri].n;
+      const c = readPixel(p.x, p.y);
+      document.getElementById("rColour").textContent = c.a === 0 ? "empty" : toHex(c);
+    }
+    if (painting && p && (tool === "pencil" || tool === "eraser")) apply(p);
+  });
+
+  window.addEventListener("pointerup", function () { painting = false; });
+
+  paint.addEventListener("pointerleave", function () {
+    document.getElementById("rCursor").textContent = "—";
+    document.getElementById("rRegion").textContent = "—";
+    document.getElementById("rColour").textContent = "—";
+  });
+
+  function setTool(t) {
+    tool = t;
+    ["pencil", "eraser", "fill", "pick"].forEach(function (k) {
+      document.getElementById("t-" + k).setAttribute("aria-pressed", String(k === t));
+    });
+  }
+  document.getElementById("t-pencil").onclick = function () { setTool("pencil"); };
+  document.getElementById("t-eraser").onclick = function () { setTool("eraser"); };
+  document.getElementById("t-fill").onclick = function () { setTool("fill"); };
+  document.getElementById("t-pick").onclick = function () { setTool("pick"); };
+
+  document.getElementById("undo").onclick = function () {
+    const s = undoStack.pop();
+    if (!s) return;
+    redoStack.push(bctx.getImageData(0, 0, W, H));
+    bctx.putImageData(s, 0, 0);
+    syncHistory();
+    render();
+  };
+
+  document.getElementById("redo").onclick = function () {
+    const s = redoStack.pop();
+    if (!s) return;
+    undoStack.push(bctx.getImageData(0, 0, W, H));
+    bctx.putImageData(s, 0, 0);
+    syncHistory();
+    render();
+  };
+
+  document.addEventListener("keydown", function (e) {
+    const typing = e.target.tagName === "INPUT" && e.target.type !== "range";
+    const mod = e.ctrlKey || e.metaKey;
+
+    /* Undo and redo work even while a slider has focus, because that is where the hand often is. */
+    if (mod && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      document.getElementById(e.shiftKey ? "redo" : "undo").click();
+      return;
+    }
+    if (mod && (e.key === "y" || e.key === "Y")) {
+      e.preventDefault();
+      document.getElementById("redo").click();
+      return;
+    }
+    if (typing || mod) return;
+    if (e.key === "b") setTool("pencil");
+    if (e.key === "e") setTool("eraser");
+    if (e.key === "g") setTool("fill");
+    if (e.key === "i") setTool("pick");
+  });
+
+  /* Chrome's native EyeDropper samples ANY pixel on screen, including another window. That is what
+     makes it possible to match a colour out of a reference image sitting beside this page. */
+  const screenPick = document.getElementById("screenPick");
+  if (!window.EyeDropper) {
+    screenPick.disabled = true;
+    screenPick.textContent = "Screen picker needs Chrome";
+  } else {
+    screenPick.onclick = function () {
+      new window.EyeDropper().open().then(function (r) {
+        colour = r.sRGBHex;
+        document.getElementById("colour").value = colour;
+        setTool("pencil");
+        syncSwatches();
+      }).catch(function () { /* dismissed with Escape, nothing to do */ });
+    };
+  }
+
+  /* ---- reference underlay ---------------------------------------------------------------- */
+  /* Clicking the reference grid takes that colour and hands you the pencil. It never edits
+     anything: the reference is a source, not a second drawing. */
+  const refCanvas = document.getElementById("refCanvas");
+
+  function refPixelAt(evt) {
+    const rect = refCanvas.getBoundingClientRect();
+    const x = Math.floor((evt.clientX - rect.left) / zoom);
+    const y = Math.floor((evt.clientY - rect.top) / zoom);
+    if (x < 0 || y < 0 || x >= W || y >= H) return null;
+    return { x: x, y: y };
+  }
+
+  refCanvas.addEventListener("pointerdown", function (e) {
+    const p = refPixelAt(e); if (!p || !reference) return;
+    const d = rctx.getImageData(p.x, p.y, 1, 1).data;
+    if (d[3] === 0) {
+      document.getElementById("dirty").textContent = "that pixel is empty, nothing to take";
+      return;
+    }
+    colour = toHex({ r: d[0], g: d[1], b: d[2] });
+    document.getElementById("colour").value = colour;
+    setTool("pencil");
+    syncSwatches();
+    document.getElementById("dirty").textContent = "took " + colour + " from the reference";
+  });
+
+  refCanvas.addEventListener("pointermove", function (e) {
+    const p = refPixelAt(e); if (!p || !reference) return;
+    const d = rctx.getImageData(p.x, p.y, 1, 1).data;
+    document.getElementById("rCursor").textContent = p.x + ", " + p.y + " (reference)";
+    document.getElementById("rColour").textContent =
+      d[3] === 0 ? "empty" : toHex({ r: d[0], g: d[1], b: d[2] });
+  });
+
+  const dropzone = document.getElementById("dropzone");
+
+  function loadReference(f) {
+    if (!f || !/^image\//.test(f.type)) {
+      document.getElementById("dirty").textContent = "that is not an image file";
+      return;
+    }
+    const img = new Image();
+    img.onload = function () {
+      reference = img;
+      rctx.clearRect(0, 0, W, H);
+      rctx.imageSmoothingEnabled = false;
+      rctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, W, H);
+
+      dropzone.hidden = true;
+      document.getElementById("refWrap").hidden = false;
+      document.getElementById("refHint").hidden = false;
+      document.getElementById("refClear").disabled = false;
+      render();
+      document.getElementById("dirty").textContent =
+        "reference: " + f.name + " (" + img.width + "×" + img.height + ")";
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(f);
+  }
+
+  dropzone.addEventListener("click", function () { document.getElementById("refFile").click(); });
+  dropzone.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); document.getElementById("refFile").click(); }
+  });
+  ["dragenter", "dragover"].forEach(function (t) {
+    dropzone.addEventListener(t, function (e) { e.preventDefault(); dropzone.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (t) {
+    dropzone.addEventListener(t, function (e) { e.preventDefault(); dropzone.classList.remove("over"); });
+  });
+  dropzone.addEventListener("drop", function (e) {
+    loadReference(e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+
+  document.getElementById("refFile").addEventListener("change", function (e) {
+    loadReference(e.target.files[0]);
+    e.target.value = "";
+  });
+
+  document.getElementById("refClear").onclick = function () {
+    reference = null;
+    rctx.clearRect(0, 0, W, H);
+    document.getElementById("refClear").disabled = true;
+    document.getElementById("refWrap").hidden = true;
+    document.getElementById("refHint").hidden = true;
+    dropzone.hidden = false;
+    render();
+  };
+
+  document.getElementById("colour").addEventListener("input", function (e) {
+    colour = e.target.value;
+    syncSwatches();
+  });
+
+  const swatchWrap = document.getElementById("swatches");
+  function syncSwatches() {
+    Array.prototype.forEach.call(swatchWrap.children, function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.hex.toLowerCase() === colour.toLowerCase()));
+    });
+  }
+  PALETTE.forEach(function (hex) {
+    const b = document.createElement("button");
+    b.className = "swatch";
+    b.style.background = hex;
+    b.dataset.hex = hex;
+    b.title = hex;
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = function () {
+      colour = hex;
+      document.getElementById("colour").value = hex;
+      setTool("pencil");
+      syncSwatches();
+    };
+    swatchWrap.appendChild(b);
+  });
+
+  const regionList = document.getElementById("regionList");
+  function syncRegionList() {
+    Array.prototype.forEach.call(regionList.children, function (b, i) {
+      b.setAttribute("aria-pressed", String(i === activeRegion));
+    });
+  }
+  REGIONS.forEach(function (r, i) {
+    const b = document.createElement("button");
+    b.innerHTML = "<span>" + r.n + "</span><span class='co'>x" + r.x1 + "-" + r.x2 + " y" + r.y1 + "-" + r.y2 + "</span>";
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = function () { pin(activeRegion === i ? -1 : i); };
+    regionList.appendChild(b);
+  });
+
+  ["showRegions", "showGrid"].forEach(function (id) {
+    document.getElementById(id).addEventListener("change", function () { drawOverlay(); renderReference(); });
+  });
+  document.getElementById("clamp").addEventListener("change", function (e) {
+    const pill = document.getElementById("rClamp");
+    pill.textContent = e.target.checked ? "locked to regions" : "free paint — can miss the model";
+    pill.classList.toggle("on", !e.target.checked);
+  });
+
+  document.getElementById("zoom").addEventListener("input", function (e) {
+    zoom = parseInt(e.target.value, 10);
+    resize();
+  });
+
+  document.getElementById("import").onclick = function () { document.getElementById("file").click(); };
+  document.getElementById("file").addEventListener("change", function (e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    const img = new Image();
+    img.onload = function () {
+      pushUndo();
+      bctx.clearRect(0, 0, W, H);
+      bctx.imageSmoothingEnabled = false;
+      /* Anything not already 64x32 gets sampled down, never blended. */
+      bctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, W, H);
+      render();
+      document.getElementById("dirty").textContent =
+        (img.width === W && img.height === H)
+          ? "opened " + f.name
+          : "opened " + f.name + " — was " + img.width + "×" + img.height + ", sampled to 64×32";
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(f);
+    e.target.value = "";
+  });
+
+  /* 🚨 EXPORT HAS TO SURVIVE A SANDBOX. The first version created an <a download> and clicked it,
+     which an artifact frame can block outright with no error, so the button appeared to do nothing.
+     Three routes now, and the last one always works:
+        1. the normal download
+        2. copy the PNG to the clipboard
+        3. the image itself, shown big enough to right-click and Save image as
+     Route 3 is not a fallback bolted on, it is always visible, because it is the only one nothing
+     can take away. */
+  document.getElementById("export").onclick = function () {
+    const url = buf.toDataURL("image/png");
+    document.getElementById("outImg").src = url;
+    document.getElementById("outLink").href = url;
+    document.getElementById("output").hidden = false;
+    document.getElementById("outNote").textContent = "";
+    document.getElementById("output").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    document.getElementById("dirty").textContent = "exported — save it from the panel below";
+  };
+
+  document.getElementById("outCopy").onclick = function () {
+    buf.toBlob(function (blob) {
+      if (!navigator.clipboard || !window.ClipboardItem) {
+        document.getElementById("outNote").textContent =
+          "clipboard not available here — right-click the image and Save image as";
+        return;
+      }
+      navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(function () {
+        document.getElementById("outNote").textContent = "copied. Paste it straight into a folder.";
+      }).catch(function () {
+        document.getElementById("outNote").textContent =
+          "clipboard was refused — right-click the image and Save image as";
+      });
+    }, "image/png");
+  };
+
+  document.getElementById("outClose").onclick = function () {
+    document.getElementById("output").hidden = true;
+  };
+
+  document.getElementById("clear").onclick = function () {
+    pushUndo();
+    bctx.clearRect(0, 0, W, H);
+    render();
+  };
+
+  document.getElementById("theme").onclick = function () {
+    const cur = document.documentElement.getAttribute("data-theme");
+    const next = cur === "dark" ? "light" : cur === "light" ? "dark"
+      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark");
+    document.documentElement.setAttribute("data-theme", next);
+    render();
+  };
+
+  document.getElementById("unpin").onclick = function () { pin(-1); };
+
+  syncSwatches();
+  syncHistory();
+  setSaveState(probeStorage());
+  restoreSaved(function (had) {
+    resize();
+    if (had) document.getElementById("dirty").textContent = "restored your last session";
+  });
+})();
+</script>
