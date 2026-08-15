@@ -96,6 +96,10 @@ public final class RadConfig {
     public static final ModConfigSpec.IntValue MILK_FULL_CURE_LIMIT;
     public static final ModConfigSpec.IntValue MILK_PARTIAL_RELIEF;
     public static final ModConfigSpec.BooleanValue HEALING_POTION_CURES;
+    public static final ModConfigSpec.BooleanValue REGEN_POTION_CURES;
+    public static final ModConfigSpec.BooleanValue REGEN_GRANTS_IMMUNITY;
+    public static final ModConfigSpec.IntValue BLOCK_REGEN_FROM_STAGE;
+    public static final ModConfigSpec.BooleanValue STAGE_MESSAGES;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> CHOCOLATE_ITEMS;
     public static final ModConfigSpec.IntValue CHOCOLATE_FULL_CURE_LIMIT;
     public static final ModConfigSpec.IntValue CHOCOLATE_PARTIAL_RELIEF;
@@ -377,17 +381,43 @@ public final class RadConfig {
                 "",
                 "The Contamination effect's LEVEL is the stage reached, so the HUD reads Contamination IV",
                 "and you can see how far gone you are without any counter item.").push("staging");
-        STAGE_1_NAUSEA = b.defineInRange("stage_1_nausea_seconds", 60, 1, 100000);
-        STAGE_2_SLOWNESS = b.defineInRange("stage_2_slowness_seconds", 120, 1, 100000);
-        STAGE_3_MINING_FATIGUE = b.defineInRange("stage_3_mining_fatigue_seconds", 180, 1, 100000);
+        // 🚨 RETIMED 2026-08-14. One stage every 30 seconds, not every 60. Paul played the old
+        // ladder and could outlast it: damage did not start until 5:00, by which point vanilla food
+        // regeneration was healing about as fast as the damage landed, so he sat at half a heart
+        // forever. His target is dead at about 4:00 from a single Radiation I, damage from 2:30.
+        // Radiation II needs no separate numbers: it runs the same ladder at 3x, so it kills in
+        // about 2:00 and blows past the milk limit in 60 seconds.
+        STAGE_1_NAUSEA = b.defineInRange("stage_1_nausea_seconds", 30, 1, 100000);
+        STAGE_2_SLOWNESS = b.defineInRange("stage_2_slowness_seconds", 60, 1, 100000);
+        STAGE_3_MINING_FATIGUE = b.defineInRange("stage_3_mining_fatigue_seconds", 90, 1, 100000);
         STAGE_4_POISON = b.comment("Poison cannot kill on its own, vanilla stops it at half a heart")
-                .defineInRange("stage_4_poison_seconds", 240, 1, 100000);
-        STAGE_5_DAMAGE = b.comment("Radiation damage. The first stage that can kill you.")
-                .defineInRange("stage_5_damage_seconds", 300, 1, 100000);
-        STAGE_6_WITHER = b.comment("Wither on top of the damage. The end of the road.")
-                .defineInRange("stage_6_wither_seconds", 360, 1, 100000);
-        DAMAGE_PER_DOSE = b.comment("Half a heart is 1.0. Stage 5 and up only, and it ramps from there.")
-                .defineInRange("damage_per_dose", 1.0D, 0.0D, 100.0D);
+                .defineInRange("stage_4_poison_seconds", 120, 1, 100000);
+        STAGE_5_DAMAGE = b.comment(
+                        "Radiation damage. The first stage that can kill you, and the first that blocks",
+                        "natural regeneration so food cannot outlast it.")
+                .defineInRange("stage_5_damage_seconds", 150, 1, 100000);
+        STAGE_6_WITHER = b.comment(
+                        "Wither on top of the damage. ⚠️ Unlike poison, wither damage CAN kill, which is",
+                        "why it is the end of the road.")
+                .defineInRange("stage_6_wither_seconds", 210, 1, 100000);
+        DAMAGE_PER_DOSE = b.comment(
+                        "Half a heart is 1.0. Stage 5 and up only, and it ramps from there.",
+                        "0.5 with regeneration blocked kills an untreated player at roughly 4:00, which is",
+                        "Paul's number. It was 1.0 while food was still healing most of it back.")
+                .defineInRange("damage_per_dose", 0.5D, 0.0D, 100.0D);
+        BLOCK_REGEN_FROM_STAGE = b.comment(
+                        "🚨 THE FIX FOR 'YOU CAN OUTLAST IT', Paul 2026-08-14. At this stage and above,",
+                        "natural regeneration is cancelled outright. Radiation you can eat your way out of",
+                        "is not radiation. Healing and Regeneration potions still work, because both CURE",
+                        "first, which drops the stage to 0 before any healing is applied.",
+                        "Set above 6 to disable.")
+                .defineInRange("block_regen_from_stage", 5, 1, 7);
+        STAGE_MESSAGES = b.comment(
+                        "Announce each stage change on the actionbar, above the hotbar. Paul could not tell",
+                        "the stages existed, and he was right that nothing on screen said so: every symptom",
+                        "effect is added with its icon hidden, and only Contamination's Roman numeral carried",
+                        "the stage at all.")
+                .define("stage_messages", true);
         NATURAL_RECOVERY = b.comment(
                         "Seconds of exposure shed per interval while clean AND self_advance_rate is 0.",
                         "Ignored while contamination is self-advancing, which is the intended design.")
@@ -447,9 +477,21 @@ public final class RadConfig {
                         "A Potion of Healing, any level, wipes contamination completely at any stage. This is",
                         "the answer to being past the milk limit. Paul's rule, 2026-08-12.",
                         "",
-                        "⚠️ Drinkable potions only. A splash or lingering healing potion applies its effect by a",
-                        "different path that this hook does not see, so it heals hearts without curing.")
+                        "Drinkable, splash and lingering all work. Splash and lingering go through a separate",
+                        "impact hook, because vanilla applies instant effects without ever calling addEffect.")
                 .define("healing_potion_cures", true);
+        REGEN_POTION_CURES = b.comment(
+                        "A Potion of Regeneration cures the same way. Paul, 2026-08-14: both bottles a player",
+                        "thinks of as medicine should work. Regeneration also scrubs the LAND when thrown, so",
+                        "one bottle now treats the player and the ground it lands on.")
+                .define("regen_potion_cures", true);
+        REGEN_GRANTS_IMMUNITY = b.comment(
+                        "Regeneration also holds radiation off for as long as it lasts, not only at the",
+                        "moment you drink it. Paul, 2026-08-14: 'it is a time limit countdown, so you should",
+                        "be immune during the time the regen is active.'",
+                        "This is what makes Regeneration the answer to Radiation II: the cure is a moment,",
+                        "the immunity is a window you can work inside.")
+                .define("regen_grants_immunity", true);
         b.pop();
 
         SPEC = b.build();

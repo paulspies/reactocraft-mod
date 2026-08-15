@@ -1,7 +1,9 @@
 package com.paulspies.reactocraft;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.alchemy.PotionContents;
@@ -28,6 +30,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
+import net.neoforged.neoforge.event.entity.living.LivingHealEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
@@ -53,7 +56,15 @@ public final class RadEngine {
     private RadEngine() {}
 
     private static final String EXPOSURE_KEY = "reactocraft_exposure";
+    /** The last stage announced, so the actionbar fires on the change and not every three seconds. */
+    private static final String STAGE_KEY = "reactocraft_stage";
     private static final String ZONE_TAG = "rad";
+
+    /** Indexed by stage, so 0 is unused. Kept short: this is an actionbar line, not a paragraph. */
+    private static final String[] STAGE_NAMES = {
+            "", "dizziness", "your legs are going", "weak and slow", "poisoned",
+            "burning, and food will not save you", "dying"
+    };
 
     public static final ResourceKey<DamageType> RADIATION_DAMAGE = ResourceKey.create(
             Registries.DAMAGE_TYPE, ResourceLocation.fromNamespaceAndPath(ReactoCraft.MODID, "radiation"));
@@ -198,6 +209,13 @@ public final class RadEngine {
     private static int shieldPercent(ServerPlayer player) {
         int shield = 0;
 
+        // Regeneration holds radiation off for as long as it runs, not just at the sip. Paul's rule,
+        // 2026-08-14: it is a countdown, so it should buy a window you can act inside. That window
+        // is the only sane answer to Radiation II, which outruns milk in sixty seconds.
+        if (RadConfig.REGEN_GRANTS_IMMUNITY.get() && player.hasEffect(MobEffects.REGENERATION)) {
+            return 100;
+        }
+
         if (player.hasEffect(ModEffects.RAD_RESISTANCE)) {
             shield += player.getEffect(ModEffects.RAD_RESISTANCE).getAmplifier() >= 1
                     ? RadConfig.RESISTANCE_II.get()
@@ -281,10 +299,12 @@ public final class RadEngine {
 
         if (exposure <= 0) {
             player.removeEffect(ModEffects.CONTAMINATION);
+            data.putInt(STAGE_KEY, 0);
             return;
         }
 
         int stage = stageFor(exposure);
+        announceStage(player, data, stage);
         if (stage == 0) return;
 
         // Infinite, because it does not wear off. The HUD shows the level as a Roman numeral and an
@@ -304,11 +324,74 @@ public final class RadEngine {
         if (stage >= 4) player.addEffect(new MobEffectInstance(MobEffects.POISON, ticks, ramp(stage, 4), true, false));
         if (stage >= 6) player.addEffect(new MobEffectInstance(MobEffects.WITHER, ticks, ramp(stage, 6), true, false));
 
+        // 🚨 THE DIZZINESS LADDER, Paul 2026-08-14: "our nausea is still pretty mild in comparison,
+        // I want it to get a lot worse."
+        //
+        // ⚠️ Nausea itself CANNOT get worse. Vanilla draws the identical screen wobble at every
+        // amplifier, so passing a bigger number changes the HUD and nothing else. The only honest
+        // way to escalate is to layer other effects on top, which is what these are. A real
+        // intensifying wobble needs our own screen shader, which is client-side and would make
+        // every player reinstall.
+        if (stage >= 3) player.addEffect(new MobEffectInstance(MobEffects.HUNGER, ticks, ramp(stage, 3), true, false));
+        if (stage >= 4) player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, ticks, ramp(stage, 4), true, false));
+        // Darkness pulses the vignette closed on its own timer, which reads as your sight going.
+        if (stage >= 5) player.addEffect(new MobEffectInstance(MobEffects.DARKNESS, ticks, 0, true, false));
+        // ❌ NO BLINDNESS. Paul and Kolten both said no, 2026-08-15. It was my addition, not theirs.
+        // Darkness stays for now because it pulses rather than blanking the screen, but it is on the
+        // same list: ask before adding anything that takes sight away.
+
         if (stage >= 5) {
             // Ramps past the threshold, so standing in it gets worse rather than sitting at a trickle.
             int at = RadConfig.STAGE_5_DAMAGE.get();
             double ramp = (double) (exposure - at) / Math.max(1, at);
             hurt(player, (float) (RadConfig.DAMAGE_PER_DOSE.get() * (1.0D + ramp * 3.0D)));
+        }
+    }
+
+    /**
+     * Say out loud which stage you just reached. Paul, 2026-08-14: "you said we would have stages
+     * and I told you I don't see them."
+     *
+     * 🔑 He was right, and the reason is in this file: every symptom effect above is added with its
+     * icon HIDDEN, so the only thing on screen carrying the stage was a Roman numeral on the
+     * Contamination icon, in a menu you have to open. The stages were real and invisible.
+     *
+     * Only ever announces going UP. Coming down happens through a cure, which has its own feedback.
+     */
+    private static void announceStage(ServerPlayer player, CompoundTag data, int stage) {
+        int previous = data.getInt(STAGE_KEY);
+        if (stage == previous) return;
+        data.putInt(STAGE_KEY, stage);
+
+        if (!RadConfig.STAGE_MESSAGES.get() || stage <= previous || stage < 1) return;
+
+        player.displayClientMessage(
+                Component.literal("Radiation sickness - stage " + stage + " of 6: " + STAGE_NAMES[stage])
+                        .withStyle(stage >= 5 ? ChatFormatting.RED
+                                : stage >= 3 ? ChatFormatting.GOLD
+                                : ChatFormatting.YELLOW),
+                true);
+    }
+
+    /**
+     * 🚨 THE ANSWER TO "YOU CAN OUTLAST IT", Paul 2026-08-14.
+     *
+     * At stage 5 and up, natural regeneration is cancelled. Before this, our damage started at half
+     * a heart every three seconds while a fed player healed back about as fast, so radiation looked
+     * like it floored you at half a heart instead of killing you. It never floored anything; food
+     * was simply winning.
+     *
+     * ⚠️ Healing and Regeneration potions are unaffected, because both CURE on the way in, which
+     * puts the stage back to 0 before any healing is applied. Medicine works, bread does not.
+     */
+    @SubscribeEvent
+    public static void onHeal(LivingHealEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) return;
+
+        int from = RadConfig.BLOCK_REGEN_FROM_STAGE.get();
+        if (from > 6) return;
+        if (player.getPersistentData().getInt(STAGE_KEY) >= from) {
+            event.setCanceled(true);
         }
     }
 
@@ -344,11 +427,10 @@ public final class RadEngine {
     public static void onUseItemFinish(LivingEntityUseItemEvent.Finish event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
 
-        // A Potion of Healing, any level, wipes it completely at any stage. This is the way back
-        // once you are past the milk limit. Paul's rule, 2026-08-12.
-        if (RadConfig.HEALING_POTION_CURES.get()
-                && event.getItem().is(Items.POTION)
-                && isHealingPotion(event.getItem())) {
+        // A Potion of Healing or Regeneration, any level, wipes it completely at any stage. This is
+        // the way back once you are past the milk limit. Paul's rule, 2026-08-12; Regeneration added
+        // 2026-08-14 at his instruction, so both bottles a player thinks of as medicine work.
+        if (event.getItem().is(Items.POTION) && isCurePotion(event.getItem())) {
             cure(player);
             return;
         }
@@ -374,14 +456,22 @@ public final class RadEngine {
 
         if (exposure <= fullCure) {
             data.putInt(EXPOSURE_KEY, 0);
+            data.putInt(STAGE_KEY, 0);
             // A vanilla milk BUCKET strips every effect by itself, but Farmer's Delight's bottle and
             // our own drinks do not, so Contamination goes explicitly rather than being assumed gone.
             player.removeEffect(ModEffects.CONTAMINATION);
+            clearSources(player);
             return;
         }
 
         int left = Math.max(0, exposure - relief);
         data.putInt(EXPOSURE_KEY, left);
+        data.putInt(STAGE_KEY, stageFor(left));
+
+        // Same reasoning as above, and it applies even to a partial cure: a real milk bucket removes
+        // the Radiation effect whether or not it clears the clock, so the bottle and the chocolate
+        // versions match it rather than quietly leaving the source running.
+        clearSources(player);
 
         // A milk bucket stripped Contamination on the way in, so put it back at the level still
         // deserved. Otherwise the HUD would claim you were clean while the clock kept running.
@@ -393,21 +483,15 @@ public final class RadEngine {
     }
 
     /**
-     * True for any potion item carrying Instant Health at any level, drinkable, splash or lingering.
+     * True for any potion the cure ladder accepts: Instant Health, or Regeneration since 2026-08-14.
+     * Drinkable, splash or lingering.
      *
-     * Checked by EFFECT rather than by potion id so that Healing, Healing II and any modded or
-     * custom bottle granting instant health all count, which is what "any kind" means.
+     * Checked by EFFECT rather than by potion id so that Healing II, Regeneration II and any modded
+     * or custom bottle granting either one all count, which is what "any kind" means.
      */
-    private static boolean isHealingPotion(ItemStack stack) {
-        PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
-        return contents != null && hasHeal(contents);
-    }
-
-    private static boolean hasHeal(PotionContents contents) {
-        for (MobEffectInstance effect : contents.getAllEffects()) {
-            if (effect.getEffect() == MobEffects.HEAL) return true;
-        }
-        return false;
+    private static boolean isCurePotion(ItemStack stack) {
+        if (RadConfig.HEALING_POTION_CURES.get() && hasEffect(stack, MobEffects.HEAL)) return true;
+        return RadConfig.REGEN_POTION_CURES.get() && hasEffect(stack, MobEffects.REGENERATION);
     }
 
     /**
@@ -435,8 +519,8 @@ public final class RadEngine {
     }
 
     /**
-     * A thrown healing potion cures everyone it lands on. This covers BOTH splash and lingering,
-     * because a lingering potion is also a ThrownPotion at the moment it breaks.
+     * A thrown Healing or Regeneration potion cures everyone it lands on. This covers BOTH splash
+     * and lingering, because a lingering potion is also a ThrownPotion at the moment it breaks.
      *
      * A separate hook is needed because instant effects never go through addEffect. Vanilla calls
      * applyInstantenousEffect directly, so the drink hook cannot see a thrown one.
@@ -446,7 +530,7 @@ public final class RadEngine {
         if (!(event.getProjectile() instanceof ThrownPotion potion)) return;
         if (!(potion.level() instanceof ServerLevel level)) return;
 
-        if (RadConfig.HEALING_POTION_CURES.get() && isHealingPotion(potion.getItem())) {
+        if (isCurePotion(potion.getItem())) {
             // Matches vanilla's splash radius: 4 wide, 2 tall.
             AABB box = potion.getBoundingBox().inflate(4.0D, 2.0D, 4.0D);
             for (ServerPlayer hit : level.getEntitiesOfClass(ServerPlayer.class, box)) {
@@ -537,9 +621,39 @@ public final class RadEngine {
         return false;
     }
 
+    /**
+     * Zero the clock, drop the state effect, and REMOVE WHATEVER IS STILL IRRADIATING THEM.
+     *
+     * 🚨 That last part is the fix for 2026-08-14, and it is the whole bug. A cure taken while the
+     * Radiation effect was still running zeroed the clock, then the very next dose tick three
+     * seconds later read the effect that was never removed and started the clock again. In game
+     * that reads as "the healing potion did nothing".
+     *
+     * 🔑 The tell was that milk worked and healing did not: a vanilla milk BUCKET strips every
+     * effect on the way in, so it took the source with it by accident. Nothing else did.
+     *
+     * ⚠️ This only clears effect sources. A player standing in a zone, in a hot chunk, or holding
+     * uranium is re-dosed immediately and SHOULD be. Curing does not make you immune, it makes you
+     * clean, which is the whole point of the cleanup loop.
+     */
     private static void cure(ServerPlayer player) {
-        player.getPersistentData().putInt(EXPOSURE_KEY, 0);
+        CompoundTag data = player.getPersistentData();
+        boolean wasSick = data.getInt(EXPOSURE_KEY) > 0;
+        data.putInt(EXPOSURE_KEY, 0);
+        data.putInt(STAGE_KEY, 0);
         player.removeEffect(ModEffects.CONTAMINATION);
+        clearSources(player);
+
+        if (wasSick && RadConfig.STAGE_MESSAGES.get()) {
+            player.displayClientMessage(
+                    Component.literal("The radiation is out of you.").withStyle(ChatFormatting.GREEN), true);
+        }
+    }
+
+    /** The effect-borne sources. Zones, chunks and inventory are places, not effects, and stay. */
+    private static void clearSources(ServerPlayer player) {
+        player.removeEffect(ModEffects.RADIATION);
+        player.removeEffect(ModEffects.WEAK_RADIATION);
     }
 
     private static void hurt(ServerPlayer player, float amount) {
