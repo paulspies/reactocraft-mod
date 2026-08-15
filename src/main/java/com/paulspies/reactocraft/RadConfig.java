@@ -85,19 +85,15 @@ public final class RadConfig {
     public static final ModConfigSpec.IntValue STAGE_2_SLOWNESS;
     public static final ModConfigSpec.IntValue STAGE_3_MINING_FATIGUE;
     public static final ModConfigSpec.IntValue STAGE_4_POISON;
-    public static final ModConfigSpec.IntValue STAGE_5_DAMAGE;
-    public static final ModConfigSpec.IntValue STAGE_6_WITHER;
-    public static final ModConfigSpec.DoubleValue DAMAGE_PER_DOSE;
-    public static final ModConfigSpec.IntValue NATURAL_RECOVERY;
+    public static final ModConfigSpec.DoubleValue NATURAL_RECOVERY;
     public static final ModConfigSpec.BooleanValue MILK_CLEARS_EXPOSURE;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> MILK_ITEMS;
-    public static final ModConfigSpec.DoubleValue SELF_ADVANCE_RATE;
-    public static final ModConfigSpec.IntValue SYMPTOM_RAMP_CAP;
     public static final ModConfigSpec.IntValue MILK_FULL_CURE_LIMIT;
     public static final ModConfigSpec.IntValue MILK_PARTIAL_RELIEF;
     public static final ModConfigSpec.BooleanValue HEALING_POTION_CURES;
     public static final ModConfigSpec.BooleanValue REGEN_POTION_CURES;
     public static final ModConfigSpec.BooleanValue REGEN_GRANTS_IMMUNITY;
+    public static final ModConfigSpec.DoubleValue LETHAL_DOSE;
     public static final ModConfigSpec.IntValue BLOCK_REGEN_FROM_STAGE;
     public static final ModConfigSpec.BooleanValue STAGE_MESSAGES;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> CHOCOLATE_ITEMS;
@@ -122,22 +118,43 @@ public final class RadConfig {
                 "    Radiation II   1:30 at 3.0, then 1.0  -> Wither at exactly 3:00, Paul's number",
                 "    Radiation ext  8:00 at 1.0            -> Wither at 6:00, the extra time is wasted",
                 "    Weak Radiation capped, see the cap below, Nausea only").push("rates");
-        RATE_RADIATION = b.comment("Radiation, level I")
-                .defineInRange("radiation", 1.0D, 0.0D, 100.0D);
+        // 🚨 THESE ARE RADS PER SECOND NOW, against lethal_dose. Retuned 2026-08-15.
+        // ⚠️ TIME TO DEATH IS AN OUTPUT, NOT A SETTING. We set how hot a thing is; the clock falls
+        // out of it. Paul's point, and it is the reason the model is worth having: sources ADD, so
+        // fallout plus a pocketful of uranium plus the potion kills far faster than any alone, and
+        // nobody has to write that case.
+        // Nothing grows on its own any more, so a potion is worth exactly rate x duration:
+        //     Radiation I   6/s over 3:00  = 1080 -> crosses 1000 at about 2:47, near the very end
+        //     Radiation II 12/s over 1:30  = 1080 -> crosses at about 1:23, well inside its duration
+        // Both are fatal untreated, which is Paul's rule, and both leave a real treatment window.
+        // 🔴 ARITHMETIC, NOT MEASUREMENT. Paul times them in play and we adjust.
+        // ⚠️ The alternative worth remembering: drop Radiation I to 4/s and it delivers 720, which
+        // never kills on its own and instead strands you sick at tier 3 until you find a cure.
+        RATE_RADIATION = b.comment("Radiation I, in rads per second")
+                .defineInRange("radiation", 6.0D, 0.0D, 10000.0D);
         RATE_RADIATION_STRONG = b.comment(
-                        "Radiation II, the glowstone variant. 3.0 puts Wither at 3:00: 90 seconds of potion",
-                        "at 3x is 270, then the self-advance covers the last 90.")
-                .defineInRange("radiation_strong", 3.0D, 0.0D, 100.0D);
+                        "Radiation II, the glowstone variant. Three times the rate, so it kills inside its",
+                        "own duration and milk stops fully curing almost immediately.")
+                .defineInRange("radiation_strong", 12.0D, 0.0D, 10000.0D);
         RATE_WEAK_RADIATION = b.comment(
                         "⚠️ NOT a rate. Weak Radiation deliberately never touches the exposure clock, because",
                         "the clock self-advances and a 'weak' potion that eventually kills you is a bug.",
                         "It applies dizziness directly for as long as it lasts, and this is its strength.")
                 .defineInRange("weak_radiation_nausea_level", 0.0D, 0.0D, 9.0D);
         REFERENCE_STRENGTH = b.comment(
-                        "The zone strength that fills at rate 1.0. At 20, a rad_20 zone runs in real time,",
-                        "rad_50 is 2.5x and rad_100 is 5x. Leave it alone unless you want every zone to",
-                        "shift at once.")
-                .defineInRange("reference_zone_strength", 20, 1, 100);
+                        "The zone strength worth ONE rad per second. Everything else scales off it, so this",
+                        "is the single dial that moves every zone at once.",
+                        "",
+                        "🚨 RESCALED 2026-08-15, and it had to be. At 20, a rad_20 zone gave 1 rad/sec, which",
+                        "against a lethal dose of 1000 meant standing in it for sixteen minutes. It was tuned",
+                        "when a 'rate' meant the old exposure clock running in real time, and the dose rewrite",
+                        "left it behind. At 4:",
+                        "    rad_20  ->  5 rads/sec    a bit under a Radiation I potion",
+                        "    rad_50  -> 12 rads/sec    a Radiation II potion. Lethal in about 80 seconds",
+                        "    rad_100 -> 25 rads/sec    40 seconds. The 'do not walk in here' zone",
+                        "⚠️ When any source's meaning changes, check the others in this file. They are all",
+                        "expressed against the same lethal_dose and they drift apart silently.")
+                .defineInRange("reference_zone_strength", 4, 1, 100);
         b.pop();
 
         b.comment("Shielding percentages. They add together and cap at 100.").push("shielding");
@@ -194,10 +211,11 @@ public final class RadConfig {
                         "Lower it to make fallout fade faster, raise it toward 1.0 for near-permanent.")
                 .defineInRange("decay_per_pass", 0.999D, 0.9D, 1.0D);
         MIN_DOSE_RADS = b.comment(
-                        "🚨 A chunk below this does not dose anyone at all, and this number is load bearing.",
-                        "The exposure clock SELF-ADVANCES once started, so without a floor a single lingering",
-                        "rad would eventually kill someone hours later. It is also what gives thrown potions a",
-                        "lifespan: they fade below this and stop mattering.")
+                        "A chunk below this does not dose anyone at all. It is what gives thrown potions a",
+                        "lifespan: they decay below it and stop mattering.",
+                        "⚠️ This used to be load bearing for a different reason - the old exposure clock",
+                        "self-advanced, so any lingering trace would eventually kill. Nothing self-advances",
+                        "now, so the floor is only about tidiness and cost, not safety.")
                 .defineInRange("min_dose_rads", 10.0D, 0.0D, 10000.0D);
         POTION_RADS = b.comment(
                         "Rads a thrown Radiation potion leaves in the ground. Paul's spec, 2026-08-13: a splash",
@@ -253,9 +271,11 @@ public final class RadConfig {
                         "Set to 0 for the epicentre chunk only, or -1 to disable fire entirely.")
                 .defineInRange("fallout_fire_chunk_radius", 4, -1, 32);
         CHUNK_RADS_PER_RATE = b.comment(
-                        "How many chunk rads equal a rate of 1.0, which is the exposure clock running in",
-                        "real time. At 100, a chunk sitting at 500 doses you five times as fast as a rad_20",
-                        "zone does.")
+                        "How many rads sitting in a chunk are worth ONE rad per second to anyone standing in",
+                        "it. At 100, a chunk holding 600 doses you at 6/sec - a Radiation I potion - and a",
+                        "fresh reactor crater at 2000 doses you at 20/sec, which is lethal in under a minute.",
+                        "That is the intended feel: a blast site is the most dangerous place in the world, and",
+                        "it becomes survivable as it decays.")
                 .defineInRange("rads_per_rate", 100.0D, 1.0D, 100000.0D);
         b.pop();
 
@@ -269,19 +289,38 @@ public final class RadConfig {
                 .push("inventory");
         INVENTORY_RADIATION = b.define("enabled", true);
         INVENTORY_MAX_RATE = b.comment(
-                        "🚨 Dose is per ITEM and SUMMED across every slot, which is HBM's rule. A stack of 64",
-                        "uranium powder at 0.1 is a rate of 6.4, reaching the first symptom in about nine",
-                        "seconds, so this caps how bad a hoard can get.",
-                        "Set to 0 for no cap, which is genuinely brutal.",
-                        "2.0 means a big hoard runs the exposure clock at twice real time.")
-                .defineInRange("max_rate", 2.0D, 0.0D, 1000.0D);
-        RADIOACTIVE_ITEMS = b.defineList("radioactive_items",
-                List.of("createnuclear:uranium_rod=0.3",
-                        "createnuclear:uranium_bucket=0.3",
-                        "createnuclear:raw_uranium_block=0.3",
-                        "createnuclear:enriched_yellowcake=0.2",
-                        "createnuclear:uranium_powder=0.1",
-                        "createnuclear:raw_uranium=0.1"),
+                        "🚨 Dose is per ITEM and SUMMED across every slot, which is HBM's rule. Their items",
+                        "give `level / 20F` per tick, so a level of 1 is one rad per second - the same units",
+                        "everything else in this file uses.",
+                        "",
+                        "This caps how bad a hoard can get. At 6.0 a full backpack of uranium is worth about a",
+                        "Radiation I potion: it will kill you in a few minutes if you never put it down, which",
+                        "is the point, but it will not kill you for picking some up.",
+                        "⚠️ RAISED FROM 2.0 on 2026-08-15 with the dose rescale. At 2.0 a hoard capped out at",
+                        "2 rads/sec, or over eight minutes to lethal, which made carrying uranium a non-event.",
+                        "Set to 0 for no cap, which is genuinely brutal.")
+                .defineInRange("max_rate", 6.0D, 0.0D, 1000.0D);
+        RADIOACTIVE_ITEMS = b.comment(
+                        "Rads per second, per item, multiplied by stack size and summed.",
+                        "",
+                        "🔑 THE VALUES FOLLOW A RULE RATHER THAN A GUESS: material x form. HBM keeps a",
+                        "radioactivity per material (natural uranium 0.35, U-235 1.0, U-238 0.25, uranium fuel",
+                        "0.5) and a multiplier per shape (ingot 1, nugget 0.1, billet and rod 0.5, a full RBMK",
+                        "fuel rod 4, and POWDER 3x an ingot because dust is worse than solid metal). Ours are",
+                        "set the same way, so a new material is one number rather than a new argument.",
+                        "",
+                        "⚠️ RETUNED 2026-08-15. They were flat guesses between 0.1 and 0.3, which made a fuel",
+                        "rod take the better part of an hour to matter. Kolten's whole point was that pulling a",
+                        "hot rod out of a reactor should burn you.",
+                        "At 2.0, carrying one fuel rod is lethal in about eight minutes of never putting it",
+                        "down: fine to move, not fine to pocket.")
+                .defineList("radioactive_items",
+                List.of("createnuclear:uranium_rod=2.0",          // fuel x rod_rbmk
+                        "createnuclear:uranium_bucket=1.75",      // a bucket of the liquid
+                        "createnuclear:raw_uranium_block=3.15",   // nine raw, natural uranium
+                        "createnuclear:enriched_yellowcake=1.0",  // enriched, so U-235's number
+                        "createnuclear:uranium_powder=1.05",      // natural uranium x powder
+                        "createnuclear:raw_uranium=0.35"),        // natural uranium, one ingot's worth
                 o -> o instanceof String);
         b.pop();
 
@@ -381,36 +420,34 @@ public final class RadConfig {
                 "",
                 "The Contamination effect's LEVEL is the stage reached, so the HUD reads Contamination IV",
                 "and you can see how far gone you are without any counter item.").push("staging");
-        // 🚨 RETIMED 2026-08-14. One stage every 30 seconds, not every 60. Paul played the old
-        // ladder and could outlast it: damage did not start until 5:00, by which point vanilla food
-        // regeneration was healing about as fast as the damage landed, so he sat at half a heart
-        // forever. His target is dead at about 4:00 from a single Radiation I, damage from 2:30.
-        // Radiation II needs no separate numbers: it runs the same ladder at 3x, so it kills in
-        // about 2:00 and blows past the milk limit in 60 seconds.
-        STAGE_1_NAUSEA = b.defineInRange("stage_1_nausea_seconds", 30, 1, 100000);
-        STAGE_2_SLOWNESS = b.defineInRange("stage_2_slowness_seconds", 60, 1, 100000);
-        STAGE_3_MINING_FATIGUE = b.defineInRange("stage_3_mining_fatigue_seconds", 90, 1, 100000);
-        STAGE_4_POISON = b.comment("Poison cannot kill on its own, vanilla stops it at half a heart")
-                .defineInRange("stage_4_poison_seconds", 120, 1, 100000);
-        STAGE_5_DAMAGE = b.comment(
-                        "Radiation damage. The first stage that can kill you, and the first that blocks",
-                        "natural regeneration so food cannot outlast it.")
-                .defineInRange("stage_5_damage_seconds", 150, 1, 100000);
-        STAGE_6_WITHER = b.comment(
-                        "Wither on top of the damage. ⚠️ Unlike poison, wither damage CAN kill, which is",
-                        "why it is the end of the road.")
-                .defineInRange("stage_6_wither_seconds", 210, 1, 100000);
-        DAMAGE_PER_DOSE = b.comment(
-                        "Half a heart is 1.0. Stage 5 and up only, and it ramps from there.",
-                        "0.5 with regeneration blocked kills an untreated player at roughly 4:00, which is",
-                        "Paul's number. It was 1.0 while food was still healing most of it back.")
-                .defineInRange("damage_per_dose", 0.5D, 0.0D, 100.0D);
+        // 🚨 REWRITTEN 2026-08-15 — THE STAGES ARE DOSE NOW, NOT SECONDS, AND DEATH IS A THRESHOLD.
+        //
+        // Read out of both reference mods before changing this: NEITHER kills you with damage.
+        // HBM at 1000 rads does attackEntityFrom(radiation, 1000F) then sets health to 0.
+        // Radioactive at 10 does hurt(radiation_dt, 1.0E7f). A damage race is a negotiation you can
+        // win with food; a deadline is not. Paul measured the old damage race dying at 2:30 with
+        // stage 6 never reached at all, because stage 4 poison emptied the bar before stage 5 landed.
+        //
+        // ⚠️ The keys are RENAMED, so the old stage_*_seconds entries are now dead weight in any
+        // deployed toml. Delete them by hand; NeoForge will not.
+        LETHAL_DOSE = b.comment(
+                        "🚨 THE DEADLINE. Reach this and you die outright, whatever your health, armour or",
+                        "food. Everything below is a fraction of it, which is how both reference mods do it.")
+                .defineInRange("lethal_dose", 1000.0D, 1.0D, 1000000.0D);
+        // 🚨 HBM'S FOUR TIERS, VERBATIM. ModEventHandler, the `eRad >=` chain. Four, not six - the
+        // six-stage ladder was mine. The symptoms that fire at each are a table in RadEngine, also
+        // copied straight from their source so the two can be diffed.
+        STAGE_1_NAUSEA = b.defineInRange("tier_1_dose", 200, 1, 1000000);
+        STAGE_2_SLOWNESS = b.defineInRange("tier_2_dose", 400, 1, 1000000);
+        STAGE_3_MINING_FATIGUE = b.comment("Poison starts here, at level II, exactly as they have it")
+                .defineInRange("tier_3_dose", 600, 1, 1000000);
+        STAGE_4_POISON = b.comment("Wither joins. The last tier before the deadline.")
+                .defineInRange("tier_4_dose", 800, 1, 1000000);
         BLOCK_REGEN_FROM_STAGE = b.comment(
-                        "🚨 THE FIX FOR 'YOU CAN OUTLAST IT', Paul 2026-08-14. At this stage and above,",
-                        "natural regeneration is cancelled outright. Radiation you can eat your way out of",
-                        "is not radiation. Healing and Regeneration potions still work, because both CURE",
-                        "first, which drops the stage to 0 before any healing is applied.",
-                        "Set above 6 to disable.")
+                        "Cancel natural regeneration from this tier upward. HBM does NOT do this, so it is",
+                        "off by default (5 is above the top tier of 4).",
+                        "It existed to stop players out-eating chip damage, and there is no chip damage now -",
+                        "the deadline kills regardless of health, so food cannot save anyone anyway.")
                 .defineInRange("block_regen_from_stage", 5, 1, 7);
         STAGE_MESSAGES = b.comment(
                         "Announce each stage change on the actionbar, above the hotbar. Paul could not tell",
@@ -419,23 +456,20 @@ public final class RadConfig {
                         "the stage at all.")
                 .define("stage_messages", true);
         NATURAL_RECOVERY = b.comment(
-                        "Seconds of exposure shed per interval while clean AND self_advance_rate is 0.",
-                        "Ignored while contamination is self-advancing, which is the intended design.")
-                .defineInRange("natural_recovery_seconds", 0, 0, 1000);
-        SELF_ADVANCE_RATE = b.comment(
-                        "🚨 Once you are contaminated at all, it keeps getting worse on its own at this rate,",
-                        "whether or not you are still standing in the source. Paul's spec: five minutes, one",
-                        "symptom a minute, IF YOU DO NOT GET HELP. One sip of a Radiation potion therefore",
-                        "runs the whole ladder unless you treat it.",
-                        "Set to 0.0 to go back to only advancing while a source is present.")
-                .defineInRange("self_advance_rate", 1.0D, 0.0D, 100.0D);
-        SYMPTOM_RAMP_CAP = b.comment(
-                        "Symptoms get stronger the further past their stage you are, up to this many extra",
-                        "levels. Kolten's ask, 2026-08-12.",
-                        "⚠️ Nausea is the exception: vanilla renders the same screen wobble at every level, so",
-                        "its number rises but the picture does not. Slowness, mining fatigue, poison and",
-                        "wither all genuinely intensify.")
-                .defineInRange("symptom_ramp_cap", 3, 0, 9);
+                        "Rads per second your body clears while nothing is dosing you.",
+                        "",
+                        "⚠️ THE ONE DELIBERATE DEVIATION FROM HBM, and the reasoning is in RadEngine.applyDose.",
+                        "Their dose never falls, so a player at 999 rads with no cure is stuck at the worst",
+                        "tier forever - never dying, never recovering. Radaway is common in their mod; our",
+                        "cures are milk and potions and someone will run out.",
+                        "At 1.0 a serious dose takes about fifteen minutes to clear, which is far too slow to",
+                        "wait out in a fight, so treatment is still the real answer.",
+                        "Set to 0.0 to match HBM exactly.")
+                .defineInRange("natural_recovery_rads", 1.0D, 0.0D, 10000.0D);
+        // ❌ symptom_ramp_cap is gone. Kolten asked on 2026-08-12 for symptoms to intensify, and this
+        // computed an amplifier from how far past a stage you were. HBM's table sets the amplifier
+        // explicitly at every tier instead - Weakness I at 400 and II at 600, Poison II at 600 and
+        // III at 800 - so the intensification is still there, just stated rather than derived.
         b.pop();
 
         b.comment(

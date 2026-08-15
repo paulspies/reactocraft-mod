@@ -60,10 +60,82 @@ public final class RadEngine {
     private static final String STAGE_KEY = "reactocraft_stage";
     private static final String ZONE_TAG = "rad";
 
-    /** Indexed by stage, so 0 is unused. Kept short: this is an actionbar line, not a paragraph. */
+    /** Indexed by tier, so 0 is unused. Kept short: this is an actionbar line, not a paragraph. */
     private static final String[] STAGE_NAMES = {
-            "", "dizziness", "your legs are going", "weak and slow", "poisoned",
-            "burning, and food will not save you", "dying"
+            "", "you feel sick", "it is getting worse", "poisoned", "dying"
+    };
+
+    /**
+     * One symptom roll, in HBM's own terms.
+     *
+     * @param chancePerTick their raw `rand.nextInt(N)` denominator, kept EXACTLY as written in
+     *                      ModEventHandler so this table can be diffed against their source. It is
+     *                      converted to our slower dose tick at roll time.
+     */
+    private record Symptom(Holder<net.minecraft.world.effect.MobEffect> effect,
+                           int durationTicks, int amplifier, int chancePerTick) {
+
+        void maybeApply(ServerPlayer player) {
+            // They roll every tick; we roll once per dose interval, so the denominator shrinks by
+            // exactly that factor and the symptom arrives just as often in wall-clock terms.
+            // ⚠️ ROUNDED, not truncated. 500/60 is 8.33, and integer division to 8 made every
+            // symptom noticeably more frequent than theirs.
+            int perDose = Math.max(1, Math.round(
+                    (float) chancePerTick / Math.max(1, RadConfig.DOSE_INTERVAL.get())));
+            if (player.getRandom().nextInt(perDose) != 0) return;
+            player.addEffect(new MobEffectInstance(effect, durationTicks, amplifier, true, false));
+        }
+    }
+
+    /**
+     * The symptom ladder, reimplemented from HBM's observed behaviour. Credit to HBM's Nuclear Tech
+     * Mod for the design; none of their code is here.
+     *
+     * ⚠️ ON WORDING, because this matters for our licence: HBM Reloaded is GPL-3.0 and we ship MIT.
+     * Copyright protects expression, not systems or the parameters that make a system behave a
+     * certain way, so a ladder of thresholds with effect durations is ours to write. What would not
+     * be ours is their source, their art or their text. This table is our structure, our record
+     * type, our roll - the numbers are functional values chosen because they are known to play well.
+     *
+     * Tiers: 1 = 200 rads, 2 = 400, 3 = 600, 4 = 800. Death is at 1000 and lives in applyDose.
+     * Durations are in ticks, written as `seconds * 20`; amplifier 0 is level I.
+     *
+     * 🔑 Every symptom rolls INDEPENDENTLY, which is why HBM's sickness arrives in waves instead of
+     * sitting on you permanently. That wave pattern is the "feel" Kolten recognised and could not
+     * name, and it is the only lever anyone has on nausea - vanilla draws the identical wobble at
+     * every amplifier, which is why they pass level 0 at every tier and vary timing instead.
+     *
+     * ⚠️ No damage of ours appears anywhere in here, deliberately. Poison is the slow burn, Wither is
+     * the rapid phase, and the deadline is the only thing that kills.
+     */
+    private static final Symptom[][] SYMPTOMS = {
+            {}, // tier 0, unused
+            { // >= 200
+                    new Symptom(MobEffects.CONFUSION, 5 * 20, 0, 300),
+                    new Symptom(MobEffects.WEAKNESS, 5 * 20, 0, 500),
+                    new Symptom(MobEffects.HUNGER, 3 * 20, 2, 700),
+            },
+            { // >= 400
+                    new Symptom(MobEffects.CONFUSION, 5 * 30, 0, 300),
+                    new Symptom(MobEffects.MOVEMENT_SLOWDOWN, 5 * 20, 0, 500),
+                    new Symptom(MobEffects.WEAKNESS, 5 * 20, 1, 300),
+                    new Symptom(MobEffects.HUNGER, 3 * 20, 2, 500),
+            },
+            { // >= 600
+                    new Symptom(MobEffects.CONFUSION, 5 * 30, 0, 300),
+                    new Symptom(MobEffects.MOVEMENT_SLOWDOWN, 10 * 20, 2, 300),
+                    new Symptom(MobEffects.WEAKNESS, 10 * 20, 2, 300),
+                    new Symptom(MobEffects.POISON, 3 * 20, 1, 500),
+                    new Symptom(MobEffects.HUNGER, 3 * 20, 3, 300),
+            },
+            { // >= 800
+                    new Symptom(MobEffects.CONFUSION, 5 * 30, 0, 300),
+                    new Symptom(MobEffects.MOVEMENT_SLOWDOWN, 10 * 20, 2, 300),
+                    new Symptom(MobEffects.WEAKNESS, 10 * 20, 2, 300),
+                    new Symptom(MobEffects.POISON, 3 * 20, 2, 500),
+                    new Symptom(MobEffects.WITHER, 3 * 20, 1, 700),
+                    new Symptom(MobEffects.HUNGER, 5 * 20, 3, 300),
+            },
     };
 
     public static final ResourceKey<DamageType> RADIATION_DAMAGE = ResourceKey.create(
@@ -84,7 +156,7 @@ public final class RadEngine {
                     (int) Math.round(RadConfig.RATE_WEAK_RADIATION.get()), true, false));
         }
 
-        double rate = incomingRate(player);
+        double rate = incomingRads(player);
         double dose = 0.0D;
 
         if (rate > 0.0D) {
@@ -97,28 +169,33 @@ public final class RadEngine {
             dose = rate * (100 - shield) / 100.0D;
         }
 
-        applyExposure(player, dose);
+        applyDose(player, dose);
     }
 
     /**
-     * How fast this player is being contaminated, where 1.0 means the exposure clock runs in real
-     * time. Sources do not stack; the strongest one wins, which keeps a weak zone from adding to a
-     * strong one and quietly doubling the difficulty.
+     * How many rads per second are landing on this player, from everything at once.
+     *
+     * 🚨 SOURCES ADD. They used to compete, with the strongest winning, which meant standing in a
+     * hot chunk while carrying uranium was no worse than either one alone. HBM has no such rule:
+     * every source calls the same ContaminationUtil.contaminate and it all lands in one number.
+     *
+     * 🔑 Kolten worked this out from playing HBM before I read any of it - he pointed out that a rod
+     * pulled from a reactor burns you, so the item and the world must be the same system.
      */
-    private static double incomingRate(ServerPlayer player) {
-        double rate = 0.0D;
+    private static double incomingRads(ServerPlayer player) {
+        double rads = 0.0D;
 
         if (player.hasEffect(ModEffects.RADIATION)) {
-            rate = player.getEffect(ModEffects.RADIATION).getAmplifier() >= 1
+            rads += player.getEffect(ModEffects.RADIATION).getAmplifier() >= 1
                     ? RadConfig.RATE_RADIATION_STRONG.get()
                     : RadConfig.RATE_RADIATION.get();
         }
-        // Weak Radiation is handled in onPlayerTick and never reaches the clock. See there for why.
+        // Weak Radiation is handled in onPlayerTick and never reaches the dose. See there for why.
 
-        rate = Math.max(rate, zoneRate(player));
-        rate = Math.max(rate, chunkRate(player));
-        rate = Math.max(rate, inventoryRate(player));
-        return rate;
+        rads += zoneRate(player);
+        rads += chunkRate(player);
+        rads += inventoryRate(player);
+        return rads;
     }
 
     /**
@@ -275,76 +352,113 @@ public final class RadEngine {
         return sides * perSide;
     }
 
-    /** Add to the exposure clock, then apply whichever symptoms it has earned. */
-    private static void applyExposure(ServerPlayer player, double dose) {
+    /**
+     * Add to the accumulated dose, then apply whatever it has earned - up to and including death.
+     *
+     * 🚨 THE DOSE IS A DEADLINE, NOT A HEALTH BAR. Reaching lethal_dose kills outright, whatever
+     * your health, food or armour. Everything below it hurts but cannot finish you, because
+     * damage_can_kill is false. That is what guarantees all six stages happen in order, every time.
+     *
+     * The old version was a damage race and Paul measured what that produces: dead at 2:30 against a
+     * 4:00 target, and stage 6 never reached at all, because stage 4 poison emptied the bar and the
+     * first chip of stage 5 finished it. Both reference mods avoid this the same way - see BEHAVIOR.
+     */
+    private static void applyDose(ServerPlayer player, double dose) {
         CompoundTag data = player.getPersistentData();
-        int intervalSeconds = Math.max(1, RadConfig.DOSE_INTERVAL.get() / 20);
-        int exposure = data.getInt(EXPOSURE_KEY);
+        double intervalSeconds = Math.max(1, RadConfig.DOSE_INTERVAL.get() / 20);
+        int rads = data.getInt(EXPOSURE_KEY);
 
-        // 🚨 Once contaminated, it keeps getting worse on its own. A Radiation potion only lasts
-        // three minutes but the ladder runs five, so without this a single dose could never reach
-        // the damage stage no matter how long you waited. Paul caught that in play on 2026-08-12.
-        double advance = dose;
-        if (exposure > 0) advance = Math.max(advance, RadConfig.SELF_ADVANCE_RATE.get());
-
-        if (advance > 0.0D) {
-            exposure += Math.max(1, (int) Math.round(intervalSeconds * advance));
-        } else {
-            exposure -= RadConfig.NATURAL_RECOVERY.get();
+        // What actually landed on you this tick.
+        if (dose > 0.0D) {
+            rads += Math.max(1, (int) Math.round(intervalSeconds * dose));
         }
 
-        int hardMax = RadConfig.STAGE_6_WITHER.get() * 2;
-        exposure = Math.max(0, Math.min(hardMax, exposure));
-        data.putInt(EXPOSURE_KEY, exposure);
+        // 🚨 THE DOSE ONLY EVER GOES UP, AND NOTHING MAKES IT GROW BY ITSELF.
+        //
+        // Read out of HBM before writing this: HbmLivingProps, ModEventHandler and ContaminationUtil
+        // between them never reduce an entity's rads and never inflate them. incrementRadiation is
+        // the only path in, it caps at 2,500,000, and the figure resets to 0 only when radiation
+        // kills you. A cure item is the sole way down.
+        //
+        // 🔴 The self-advance this replaces was mine, added 2026-08-12 to make a 3 minute potion
+        // reach a 5 minute ladder. With a dose model that problem does not exist, and the flat rate
+        // it used made every source equally lethal - one rad picked up in passing killed you as
+        // surely as the potion. Paul's original rule ("the effects stay until you get help") is
+        // satisfied better by HBM's version: they stay, they simply do not grow.
+        //
+        // ⚠️ ONE DELIBERATE DEVIATION FROM HBM: a slow decay while nothing is dosing you.
+        // Theirs never falls, which means a player who takes 999 rads and has no cure is stuck at
+        // tier 4 permanently - poisoned and withering forever, never dying, never recovering. That
+        // works for HBM because Radaway is craftable and common; our cures are milk and potions, and
+        // running out would strand someone in a state with no way back. At 1 rad/sec a serious dose
+        // takes about fifteen minutes to clear, which is far too slow to wait out in a fight, so
+        // treatment is still the real answer. It is also true to life - the body does repair.
+        if (dose <= 0.0D) {
+            rads -= (int) Math.round(RadConfig.NATURAL_RECOVERY.get() * intervalSeconds);
+            rads = Math.max(0, rads);
+        }
 
-        if (exposure <= 0) {
+        data.putInt(EXPOSURE_KEY, rads);
+
+        if (rads <= 0) {
             player.removeEffect(ModEffects.CONTAMINATION);
             data.putInt(STAGE_KEY, 0);
             return;
         }
 
-        int stage = stageFor(exposure);
-        announceStage(player, data, stage);
-        if (stage == 0) return;
+        // 🚨 THE DEADLINE. Checked before the symptoms, because nothing below matters once it lands.
+        if (rads >= RadConfig.LETHAL_DOSE.get()) {
+            kill(player, data);
+            return;
+        }
+
+        int tier = tierFor(rads);
+        announceStage(player, data, tier);
+        if (tier == 0) return;
 
         // Infinite, because it does not wear off. The HUD shows the level as a Roman numeral and an
         // infinity marker instead of a countdown, which says "this needs treating" on its own.
         MobEffectInstance current = player.getEffect(ModEffects.CONTAMINATION);
-        if (current == null || current.getAmplifier() != stage - 1) {
+        if (current == null || current.getAmplifier() != tier - 1) {
             player.addEffect(new MobEffectInstance(
-                    ModEffects.CONTAMINATION, MobEffectInstance.INFINITE_DURATION, stage - 1, true, true));
+                    ModEffects.CONTAMINATION, MobEffectInstance.INFINITE_DURATION, tier - 1, true, true));
         }
 
-        // Long enough to outlast the gap between doses so the icons hold steady.
-        int ticks = RadConfig.DOSE_INTERVAL.get() + 40;
+        for (Symptom s : SYMPTOMS[tier]) {
+            s.maybeApply(player);
+        }
 
-        if (stage >= 1) player.addEffect(new MobEffectInstance(MobEffects.CONFUSION, ticks, ramp(stage, 1), true, false));
-        if (stage >= 2) player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, ramp(stage, 2), true, false));
-        if (stage >= 3) player.addEffect(new MobEffectInstance(MobEffects.DIG_SLOWDOWN, ticks, ramp(stage, 3), true, false));
-        if (stage >= 4) player.addEffect(new MobEffectInstance(MobEffects.POISON, ticks, ramp(stage, 4), true, false));
-        if (stage >= 6) player.addEffect(new MobEffectInstance(MobEffects.WITHER, ticks, ramp(stage, 6), true, false));
+        // ❌ Nothing else. No layered Hunger/Weakness/Darkness of mine, no chip damage, no blindness.
+        // HUNGER and WEAKNESS are in their table above at the tiers they chose; Darkness and
+        // Blindness are not in HBM at all, and Paul and Kolten both said no to taking sight away.
+        // Poison is the slow burn, Wither is the rapid phase, and the deadline is the only killer.
+    }
 
-        // 🚨 THE DIZZINESS LADDER, Paul 2026-08-14: "our nausea is still pretty mild in comparison,
-        // I want it to get a lot worse."
-        //
-        // ⚠️ Nausea itself CANNOT get worse. Vanilla draws the identical screen wobble at every
-        // amplifier, so passing a bigger number changes the HUD and nothing else. The only honest
-        // way to escalate is to layer other effects on top, which is what these are. A real
-        // intensifying wobble needs our own screen shader, which is client-side and would make
-        // every player reinstall.
-        if (stage >= 3) player.addEffect(new MobEffectInstance(MobEffects.HUNGER, ticks, ramp(stage, 3), true, false));
-        if (stage >= 4) player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, ticks, ramp(stage, 4), true, false));
-        // Darkness pulses the vignette closed on its own timer, which reads as your sight going.
-        if (stage >= 5) player.addEffect(new MobEffectInstance(MobEffects.DARKNESS, ticks, 0, true, false));
-        // ❌ NO BLINDNESS. Paul and Kolten both said no, 2026-08-15. It was my addition, not theirs.
-        // Darkness stays for now because it pulses rather than blanking the screen, but it is on the
-        // same list: ask before adding anything that takes sight away.
+    /**
+     * 🚨 THE DEADLINE LANDING. Both reference mods do exactly this and nothing subtler.
+     *
+     * HBM: attackEntityFrom(radiation, 1000F), then setHealth(0), then onDeath.
+     * Radioactive: hurt(radiation_dt, 1.0E7f).
+     *
+     * The damage call is what produces the death message and the statistics; the setHealth is the
+     * guarantee, because absorption hearts, resistance or another mod's shield could otherwise
+     * absorb even a huge hit and leave the player standing at lethal dose forever.
+     *
+     * The dose resets, so respawning does not put you straight back into a corpse.
+     */
+    private static void kill(ServerPlayer player, CompoundTag data) {
+        data.putInt(EXPOSURE_KEY, 0);
+        data.putInt(STAGE_KEY, 0);
+        player.removeEffect(ModEffects.CONTAMINATION);
+        clearSources(player);
 
-        if (stage >= 5) {
-            // Ramps past the threshold, so standing in it gets worse rather than sitting at a trickle.
-            int at = RadConfig.STAGE_5_DAMAGE.get();
-            double ramp = (double) (exposure - at) / Math.max(1, at);
-            hurt(player, (float) (RadConfig.DAMAGE_PER_DOSE.get() * (1.0D + ramp * 3.0D)));
+        Holder<DamageType> type = player.level().registryAccess()
+                .registryOrThrow(Registries.DAMAGE_TYPE)
+                .getHolderOrThrow(RADIATION_DAMAGE);
+        player.hurt(new DamageSource(type), Float.MAX_VALUE);
+
+        if (player.isAlive()) {
+            player.setHealth(0.0F);
         }
     }
 
@@ -395,24 +509,17 @@ public final class RadEngine {
         }
     }
 
-    /**
-     * A symptom gets stronger the further past its own stage you are, capped by config.
-     *
-     * ⚠️ Nausea is the exception. Vanilla draws the same screen wobble at every amplifier, so its
-     * level rises in the HUD but the picture does not change. Everything else genuinely intensifies.
-     */
-    private static int ramp(int stage, int stageIntroduced) {
-        return Math.min(RadConfig.SYMPTOM_RAMP_CAP.get(), stage - stageIntroduced);
-    }
 
-    /** 0 means no symptoms yet. 1 through 6 are the stages, and also the Contamination level. */
-    private static int stageFor(int exposure) {
-        if (exposure >= RadConfig.STAGE_6_WITHER.get()) return 6;
-        if (exposure >= RadConfig.STAGE_5_DAMAGE.get()) return 5;
-        if (exposure >= RadConfig.STAGE_4_POISON.get()) return 4;
-        if (exposure >= RadConfig.STAGE_3_MINING_FATIGUE.get()) return 3;
-        if (exposure >= RadConfig.STAGE_2_SLOWNESS.get()) return 2;
-        if (exposure >= RadConfig.STAGE_1_NAUSEA.get()) return 1;
+    /**
+     * 0 means no symptoms yet. 1 through 4 are HBM's tiers, and also the Contamination level.
+     *
+     * Four, not six. The six-stage ladder was mine; theirs is 200/400/600/800 with death at 1000.
+     */
+    private static int tierFor(int rads) {
+        if (rads >= RadConfig.STAGE_4_POISON.get()) return 4;
+        if (rads >= RadConfig.STAGE_3_MINING_FATIGUE.get()) return 3;
+        if (rads >= RadConfig.STAGE_2_SLOWNESS.get()) return 2;
+        if (rads >= RadConfig.STAGE_1_NAUSEA.get()) return 1;
         return 0;
     }
 
@@ -466,7 +573,7 @@ public final class RadEngine {
 
         int left = Math.max(0, exposure - relief);
         data.putInt(EXPOSURE_KEY, left);
-        data.putInt(STAGE_KEY, stageFor(left));
+        data.putInt(STAGE_KEY, tierFor(left));
 
         // Same reasoning as above, and it applies even to a partial cure: a real milk bucket removes
         // the Radiation effect whether or not it clears the clock, so the bottle and the chocolate
@@ -475,10 +582,10 @@ public final class RadEngine {
 
         // A milk bucket stripped Contamination on the way in, so put it back at the level still
         // deserved. Otherwise the HUD would claim you were clean while the clock kept running.
-        int stage = stageFor(left);
-        if (stage > 0) {
+        int tier = tierFor(left);
+        if (tier > 0) {
             player.addEffect(new MobEffectInstance(
-                    ModEffects.CONTAMINATION, MobEffectInstance.INFINITE_DURATION, stage - 1, true, true));
+                    ModEffects.CONTAMINATION, MobEffectInstance.INFINITE_DURATION, tier - 1, true, true));
         }
     }
 
@@ -656,6 +763,13 @@ public final class RadEngine {
         player.removeEffect(ModEffects.WEAK_RADIATION);
     }
 
+    /**
+     * Radiation damage, used only by the deadline now.
+     *
+     * ❌ Nothing in the tier ladder calls this any more. HBM inflicts no radiation damage of its own
+     * below 1000 rads - Poison and Wither do that work - and neither do we. Kept because the damage
+     * type carries the death message and the statistics.
+     */
     private static void hurt(ServerPlayer player, float amount) {
         Holder<DamageType> type = player.level().registryAccess()
                 .registryOrThrow(Registries.DAMAGE_TYPE)
